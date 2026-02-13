@@ -36,8 +36,10 @@ function ManageContent() {
     const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true); // Default to collapsed
     const panelRef = useRef<any>(null);
     const sidebarRef = useRef<any>(null);
+    const terminalPanelRef = useRef<any>(null);
 
     useEffect(() => {
         if (!host || host === "0.0.0.0") return;
@@ -326,111 +328,64 @@ function ManageContent() {
                             <div className="h-16 w-1 rounded-full bg-white/10 group-hover:bg-brand-primary/50 transition-colors"></div>
                         </PanelResizeHandle>
 
-                        {/* Right Panel: Resizable Processes & Terminal */}
-                        <Panel defaultSize={70}>
-                            <div className="h-full p-6 pl-0">
-                                <PanelGroup orientation="vertical" className="h-full">
-                                    {/* Process Monitor Panel */}
-                                    <Panel
-                                        panelRef={panelRef}
-                                        defaultSize={35}
-                                        minSize={15}
-                                        collapsible={true}
-                                        collapsedSize={80}
-                                        onResize={(size) => setIsProcessesCollapsed(size.inPixels <= 85)}
-                                        className={`flex flex-col bg-[#050505] border border-white/10 rounded-[2.5rem] relative overflow-hidden transition-all duration-300 ${isProcessesCollapsed ? '!min-h-[5rem] !h-[5rem] overflow-hidden' : ''}`}
-                                    >
-                                        {/* Process Header */}
+                        {/* Center Panel: Terminal & Easy Deploy */}
+                        <Panel defaultSize={50} minSize={30}>
+                            <PanelGroup orientation="vertical" className="h-full">
+                                {/* Easy Deploy Panel */}
+                                <Panel defaultSize={40} minSize={20} className="p-6 pb-2">
+                                    <EasyDeploy
+                                        config={dialogConfig}
+                                        onSuccess={() => {
+                                            // Trigger a refresh of stats
+                                            setLastUpdated(Date.now().toString());
+                                        }}
+                                    />
+                                </Panel>
+
+                                <PanelResizeHandle className="h-4 w-full flex items-center justify-center cursor-row-resize bg-transparent hover:bg-white/5 transition-colors group z-10">
+                                    <div className="w-16 h-1 rounded-full bg-white/10 group-hover:bg-brand-primary/50 transition-colors"></div>
+                                </PanelResizeHandle>
+
+                                {/* Terminal Panel */}
+                                <Panel
+                                    defaultSize={5}
+                                    minSize={10}
+                                    collapsible={true}
+                                    collapsedSize={4}
+                                    onResize={(size) => setIsTerminalCollapsed(size.inPixels < 100)}
+                                    // Start collapsed by default logic is tricky with react-resizable-panels, usually defaultSize determines it. 
+                                    // If defaultSize < minSize and collapsible=true, it starts collapsed? 
+                                    // Actually we can just use defaultSize small. 
+                                    className={`flex flex-col transition-all duration-300 ${isTerminalCollapsed ? 'overflow-hidden' : ''}`}
+                                >
+                                    {isTerminalCollapsed ? (
                                         <div
+                                            className="h-full w-full bg-[#050505] border-t border-white/10 flex items-center px-6 justify-between cursor-pointer hover:bg-white/5 transition-colors"
                                             onClick={() => {
-                                                const p = panelRef.current;
-                                                if (p) {
-                                                    if (isProcessesCollapsed) p.expand();
-                                                    else p.collapse();
-                                                }
+                                                // We need a ref to the panel to expand it programmatically, OR just let user drag. 
+                                                // But user asked for "expend" (click to expand).
+                                                // react-resizable-panels imperative API: panelRef.current.resize(50) or expand()
+                                                terminalPanelRef.current?.expand();
                                             }}
-                                            className="h-20 flex-shrink-0 border-b border-white/5 flex items-center px-8 justify-between bg-black/20 cursor-pointer hover:bg-white/[0.02] transition-colors"
                                         >
-                                            <div className="flex items-center gap-4">
-                                                <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Active Processes</h3>
-                                                {isProcessesCollapsed && (
-                                                    <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400">
-                                                        {stats.processes.length} Running
-                                                    </span>
-                                                )}
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex gap-1.5 opacity-50">
+                                                    <div className="w-2 h-2 rounded-full bg-white/10"></div>
+                                                    <div className="w-2 h-2 rounded-full bg-white/10"></div>
+                                                </div>
+                                                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest font-bold">
+                                                    Terminal <span className="text-zinc-700">/</span> {user}@{host}
+                                                </span>
                                             </div>
-                                            <div className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-zinc-400 transition-transform duration-300 ${isProcessesCollapsed ? 'rotate-180' : 'rotate-0'}`}>
+                                            <div className="flex items-center gap-2 text-zinc-600">
+                                                <span className="text-[9px] uppercase tracking-wider">Expand</span>
                                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                                                 </svg>
                                             </div>
                                         </div>
-
-                                        {/* Process List Header & Content */}
-                                        {!isProcessesCollapsed && (
-                                            <>
-                                                <div className="h-10 bg-white/[0.03] flex items-center px-8 text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">
-                                                    <span className="w-full">Command</span>
-                                                    <span className="w-20 text-right">PID</span>
-                                                    <span className="w-16 text-right">CPU</span>
-                                                    <span className="w-16 text-right">MEM</span>
-                                                    <span className="w-24 text-right pr-4">USER</span>
-                                                </div>
-
-                                                <div className="flex-grow overflow-y-auto custom-scrollbar p-0">
-                                                    {isLoading ? (
-                                                        <div className="h-full flex flex-col items-center justify-center gap-4 text-zinc-600">
-                                                            <div className="animate-spin w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full"></div>
-                                                            <span className="text-xs font-mono uppercase tracking-widest">Fetching process table...</span>
-                                                        </div>
-                                                    ) : (
-                                                        <table className="w-full text-left border-collapse">
-                                                            <tbody className="divide-y divide-white/5">
-                                                                {stats.processes.map((proc) => (
-                                                                    <tr key={proc.pid} className="group hover:bg-white/[0.02] transition-colors">
-                                                                        <td className="py-3 pl-8">
-                                                                            <div className="text-xs font-bold text-zinc-300 group-hover:text-brand-primary transition-colors">{proc.command}</div>
-                                                                        </td>
-                                                                        <td className="py-3 text-right w-20">
-                                                                            <span className="text-[10px] font-mono text-zinc-500">{proc.pid}</span>
-                                                                        </td>
-                                                                        <td className="py-3 text-right w-16">
-                                                                            <span className={`text-[10px] font-mono font-bold ${parseFloat(proc.cpu) > 10 ? 'text-brand-primary' : 'text-zinc-400'}`}>{proc.cpu}</span>
-                                                                        </td>
-                                                                        <td className="py-3 text-right w-16">
-                                                                            <span className="text-[10px] font-mono text-zinc-400">{proc.mem}</span>
-                                                                        </td>
-                                                                        <td className="py-3 pr-8 text-right w-24">
-                                                                            <span className="text-[10px] font-mono text-zinc-600 uppercase">{proc.user}</span>
-                                                                        </td>
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
-                                                    )}
-                                                </div>
-                                            </>
-                                        )}
-                                    </Panel>
-
-                                    <PanelResizeHandle className="h-6 w-full flex items-center justify-center cursor-row-resize bg-transparent hover:bg-white/5 transition-colors group">
-                                        <div className="w-16 h-1 rounded-full bg-white/10 group-hover:bg-brand-primary/50 transition-colors"></div>
-                                    </PanelResizeHandle>
-
-                                    {/* Terminal Panel */}
-                                    <Panel defaultSize={65} minSize={10} className="flex flex-col gap-4">
-                                        {/* Easy Deploy Section */}
-                                        <div className="shrink-0 px-6">
-                                            <EasyDeploy
-                                                config={dialogConfig}
-                                                onSuccess={() => {
-                                                    // Trigger a refresh of stats
-                                                    setLastUpdated(Date.now().toString());
-                                                }}
-                                            />
-                                        </div>
-
-                                        <div className="flex-grow bg-[#050505] border border-white/10 rounded-[2.5rem] relative overflow-hidden flex flex-col">
+                                    ) : (
+                                        <div className="h-full bg-[#050505] border border-white/10 rounded-[2.5rem] relative overflow-hidden flex flex-col">
                                             {/* Terminal Top Bar */}
                                             <div className="h-10 border-b border-white/5 flex items-center px-6 justify-between bg-black/20 shrink-0">
                                                 <div className="flex gap-1.5">
@@ -439,7 +394,16 @@ function ManageContent() {
                                                     <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
                                                 </div>
                                                 <div className="text-[9px] font-mono text-zinc-600 tracking-widest font-bold uppercase">SSH / {user}@{host}</div>
-                                                <div className="w-2.5 h-2.5"></div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => terminalPanelRef.current?.collapse()}
+                                                        className="text-zinc-600 hover:text-white transition-colors"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {/* Terminal Content */}
@@ -451,9 +415,101 @@ function ManageContent() {
                                                 />
                                             </div>
                                         </div>
-                                    </Panel>
-                                </PanelGroup>
-                            </div>
+                                    )}
+                                </Panel>
+                            </PanelGroup>
+                        </Panel>
+
+                        <PanelResizeHandle className="w-2 h-full flex flex-col items-center justify-center cursor-col-resize bg-transparent hover:bg-white/5 transition-colors group z-10">
+                            <div className="h-16 w-1 rounded-full bg-white/10 group-hover:bg-brand-primary/50 transition-colors"></div>
+                        </PanelResizeHandle>
+
+                        {/* Right Panel: Active Processes */}
+                        <Panel
+                            panelRef={panelRef}
+                            defaultSize={20}
+                            minSize={15}
+                            collapsible={true}
+                            collapsedSize={4}
+                            onResize={(size) => setIsProcessesCollapsed(size.asPercentage < 10)}
+                            className={`flex flex-col transition-all duration-300 ${isProcessesCollapsed ? 'bg-white/[0.02]' : ''}`}
+                        >
+                            {isProcessesCollapsed ? (
+                                <div className="h-full w-full flex flex-col items-center pt-8 gap-4 cursor-pointer hover:bg-white/5 transition-colors"
+                                    onClick={() => panelRef.current?.expand()}
+                                >
+                                    <button className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-zinc-400 hover:text-white transition-colors">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                    <div className="h-px w-8 bg-white/10"></div>
+                                    <div className="writing-vertical-rl text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] transform rotate-180">
+                                        Activity Monitor
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-full flex flex-col relative bg-[#050505] border-l border-white/10">
+                                    <div className="absolute top-4 left-4 z-10">
+                                        <button
+                                            onClick={() => panelRef.current?.collapse()}
+                                            className="w-6 h-6 rounded-full bg-transparent flex items-center justify-center text-zinc-600 hover:text-white hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    </div>
+
+                                    {/* Process Header */}
+                                    <div className="h-20 flex-shrink-0 border-b border-white/5 flex items-center px-8 justify-between bg-black/20">
+                                        <div className="flex items-center gap-4">
+                                            <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Active Processes</h3>
+                                            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400">
+                                                {stats.processes.length} Running
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Process List Header & Content */}
+                                    <div className="h-10 bg-white/[0.03] flex items-center px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">
+                                        <span className="w-full">CMD</span>
+                                        <span className="w-16 text-right">PID</span>
+                                        <span className="w-12 text-right">CPU</span>
+                                        <span className="w-12 text-right">MEM</span>
+                                    </div>
+
+                                    <div className="flex-grow overflow-y-auto custom-scrollbar p-0 group">
+                                        {isLoading ? (
+                                            <div className="h-full flex flex-col items-center justify-center gap-4 text-zinc-600">
+                                                <div className="animate-spin w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full"></div>
+                                                <span className="text-xs font-mono uppercase tracking-widest">Fetching...</span>
+                                            </div>
+                                        ) : (
+                                            <table className="w-full text-left border-collapse">
+                                                <tbody className="divide-y divide-white/5">
+                                                    {stats.processes.map((proc) => (
+                                                        <tr key={proc.pid} className="group hover:bg-white/[0.02] transition-colors">
+                                                            <td className="py-2 pl-4">
+                                                                <div className="text-[10px] font-bold text-zinc-300 group-hover:text-brand-primary transition-colors truncate max-w-[120px]" title={proc.command}>{proc.command}</div>
+                                                            </td>
+                                                            <td className="py-2 text-right w-16">
+                                                                <span className="text-[9px] font-mono text-zinc-500">{proc.pid}</span>
+                                                            </td>
+                                                            <td className="py-2 text-right w-12">
+                                                                <span className={`text-[9px] font-mono font-bold ${parseFloat(proc.cpu) > 10 ? 'text-brand-primary' : 'text-zinc-400'}`}>{proc.cpu}</span>
+                                                            </td>
+                                                            <td className="py-2 text-right w-12 pr-4">
+                                                                <span className="text-[9px] font-mono text-zinc-400">{proc.mem}</span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </Panel>
                     </PanelGroup>
                 </main>
