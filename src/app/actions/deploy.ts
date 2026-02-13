@@ -6,12 +6,15 @@ import { VpsConnectionData } from "@/app/actions/vps";
 
 export async function deployProject(config: VpsConnectionData, deployConfig: DeployConfig): Promise<DeployResult> {
     const { ip, user, password } = config;
-    const { 
+    let { 
         appName, repoUrl, branch, token, 
         gitUsername, gitPassword,
         port, startCommand, buildCommand, rootDirectory,
         domain, envVars, framework 
     } = deployConfig;
+
+    // Sanitize app name (alphanumeric and dashes only)
+    appName = appName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
     const sessionId = `deploy_${user}@${ip}_${Date.now()}`;
     const logs: string[] = [];
@@ -23,62 +26,108 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 
     try {
         log(`Starting deployment for ${appName}...`);
+        log(`Target: ${user}@${ip} | Port: ${port}`);
 
-        // 1. Prepare Paths
-        const baseProjectDir = `~/projects/${appName}`;
-        // If rootDirectory is provided, the actual app runs from there
+        // 1. Prepare Paths & Smart Cleanup
+        const projectsRoot = `~/projects`;
+        const baseProjectDir = `${projectsRoot}/${appName}`;
         const appDir = rootDirectory ? `${baseProjectDir}/${rootDirectory}` : baseProjectDir;
 
+        // Ensure projects root exists
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `mkdir -p ${projectsRoot}`);
+
+        // Check if project exists and backup if so
+        const checkDirCmd = `if [ -d "${baseProjectDir}" ]; then echo "EXISTS"; else echo "MISSING"; fi`;
+        const dirStatus = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkDirCmd);
+
+        if (dirStatus.trim() === "EXISTS") {
+             const timestamp = Math.floor(Date.now() / 1000);
+             const backupDir = `${baseProjectDir}_backup_${timestamp}`;
+             log(`Existing project found. Backing up to ${backupDir}...`);
+             // We use 'mv' to rename. 
+             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `mv ${baseProjectDir} ${backupDir}`);
+             // Limit backups? (Optional: remove backups older than X? maybe later)
+        }
+
+        // 2. Fresh Clone
         let repoAuthUrl = repoUrl;
         if (token) {
+            // Support both https://token@github... and https://user:token@github... 
+            // GHP tokens usually work as username or password. clean way: https://token@github.com/...
             repoAuthUrl = repoUrl.replace("https://", `https://${token}@`);
         } else if (gitUsername && gitPassword) {
             repoAuthUrl = repoUrl.replace("https://", `https://${encodeURIComponent(gitUsername)}:${encodeURIComponent(gitPassword)}@`);
         }
 
-        // 2. clone or pull
-        // check if dir exists
-        const checkDirCmd = `if [ -d "${baseProjectDir}" ]; then echo "EXISTS"; else echo "MISSING"; fi`;
-        const dirStatus = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkDirCmd);
+        log(`Cloning repository (${branch})...`);
+        const cloneCmd = `git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir}`;
+        const cloneOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cloneCmd);
 
-        if (dirStatus.trim() === "EXISTS") {
-             log("Project directory exists. Pulling latest changes...");
-             const pullCmd = `cd ${baseProjectDir} && git fetch && git reset --hard origin/${branch}`;
-             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, pullCmd);
-        } else {
-             log(`Cloning repository from branch ${branch}...`);
-             const cloneCmd = `mkdir -p ~/projects && git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir}`;
-             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cloneCmd);
+        if (cloneOutput.toLowerCase().includes("fatal") || cloneOutput.toLowerCase().includes("error")) {
+            if (cloneOutput.includes("Authentication failed")) {
+               throw new Error("Git Authentication failed. Please check your token or credentials.");
+            }
+            if (cloneOutput.includes("Repository not found")) {
+                throw new Error("Repository not found. Check the URL or permissions.");
+            }
+            // If the error is just standard stderr noise but successful, git clone usually doesn't output "fatal" unless it failed.
+            if (cloneOutput.includes("fatal:")) {
+                 throw new Error(`Git Clone failed: ${cloneOutput.split("fatal:")[1] || cloneOutput}`);
+            }
         }
 
         // 3. Install Dependencies
         log("Installing dependencies...");
         // Check for lock files to decide install command
-        const checkLockCmd = `if [ -f "${appDir}/yarn.lock" ]; then echo "YARN"; elif [ -f "${appDir}/package-lock.json" ]; then echo "NPM"; else echo "NONE"; fi`;
+        const checkLockCmd = `if [ -f "${appDir}/yarn.lock" ]; then echo "YARN"; elif [ -f "${appDir}/pnpm-lock.yaml" ]; then echo "PNPM"; elif [ -f "${appDir}/package-lock.json" ]; then echo "NPM"; else echo "NONE"; fi`;
         const lockType = (await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkLockCmd)).trim();
 
         let installCmd = "";
         if (lockType === "YARN") {
              installCmd = `cd ${appDir} && yarn install --frozen-lockfile`;
+        } else if (lockType === "PNPM") {
+             // Assume pnpm is installed or try to install it? For now assume npm fallbacks or pnpm exists
+             // corepack enable? 
+             installCmd = `cd ${appDir} && npm install -g pnpm && pnpm install`;
         } else if (lockType === "NPM") {
              installCmd = `cd ${appDir} && npm ci --legacy-peer-deps`; // safety for old projects
         } else {
+             // Default to npm install if no lockfile or unknown
              installCmd = `cd ${appDir} && npm install`;
         }
         
-        // Execute install
-        const installOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, installCmd);
-        if (installOutput.toLowerCase().includes("error") && !installOutput.includes("warn")) {
-            // naive error check, strictly npm output usually has "ERR!"
+        // Skip install for static/python if not needed? 
+        // Python usually needs pip install -r requirements.txt
+        if (framework === 'python') {
+            const checkReq = `if [ -f "${appDir}/requirements.txt" ]; then echo "YES"; else echo "NO"; fi`;
+            const hasReq = (await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkReq)).trim();
+            if (hasReq === "YES") {
+                 installCmd = `cd ${appDir} && pip3 install -r requirements.txt`;
+            } else {
+                installCmd = "echo 'No requirements.txt found, skipping python install'";
+            }
+        } else if (framework === 'static') {
+            // Static sites might use npm for build tools
+             if ((await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `if [ -f "${appDir}/package.json" ]; then echo "YES"; else echo "NO"; fi`)).trim() !== "YES") {
+                 installCmd = "echo 'No package.json, skipping install'";
+             }
         }
 
-        // 4. Build (if nextjs/react or custom build command)
+        const installOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, installCmd);
+        // logs.push(installOutput); // Verbose logs?
+
+        // 4. Build
         if (buildCommand) {
             log(`Running build command: ${buildCommand}...`);
             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && ${buildCommand}`);
-        } else if (framework === "next" || installOutput.includes("next")) {
-            log("Building Next.js application...");
-            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && npm run build`);
+        } else if (framework === "next" || (lockType !== "NONE" && framework !== "python" && framework !== "static")) {
+             // Try to find if there is a build script
+             const hasBuildScript = `cd ${appDir} && cat package.json | grep "\\"build\\":"`;
+             const buildCheck = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, hasBuildScript);
+             if (buildCheck.includes("build")) {
+                 log("Detected build script. Running build...");
+                 await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && npm run build`);
+             }
         }
 
         // 5. Environment Variables
@@ -87,13 +136,13 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
             // Escape double quotes?? For now assume simple key=value
             const envContent = envVars;
             // We use printf to write file safely
-            const writeEnvCmd = `cd ${appDir} && printf "${envContent.replace(/\n/g, '\\n')}" > .env`;
+            const writeEnvCmd = `cd ${appDir} && printf "${envContent.replace(/\n/g, '\\n').replace(/"/g, '\\"')}" > .env`;
             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, writeEnvCmd);
         }
 
         // 6. Start with PM2
         log("Starting with PM2...");
-        // Check if process exists and delete it first to ensure fresh config
+        // Check if process exists and delete it first
         const checkPm2 = `pm2 describe ${appName} > /dev/null 2>&1 && pm2 delete ${appName} || echo "No process to delete"`;
         await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkPm2);
 
@@ -104,19 +153,15 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 
         if (framework === "next") {
              // Next.js production: pm2 start npm --name "app" -- start -- -p 3000
-             // MUST run from appDir
              script = "npm";
              args = ` -- start -- -p ${port}`;
         } else if (framework === "node") {
-             // standard node app
-             // if startCommand is a file (e.g. dist/main.js) -> pm2 start dist/main.js --name ...
-             // if startCommand is npm script -> pm2 start npm --name ... -- run start
              if (startCommand.startsWith("npm")) {
-                 const runScript = startCommand.split(" ")[1] || "start";
-                 script = "npm";
-                 args = ` -- run ${runScript} -- --port ${port}`; 
+                  const runScript = startCommand.split(" ")[1] || "start";
+                  script = "npm";
+                  args = ` -- run ${runScript} -- --port ${port}`; 
              } else {
-                 // pm2 start dist/main.js --name "app" -- --port 3000
+                 if (!startCommand) startCommand = "index.js"; // Fallback
                  args = ` -- --port ${port}`;
              }
         } else if (framework === "static") {
@@ -131,9 +176,11 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
             pm2Cmd = `cd ${appDir} && pm2 start ${script} --name "${appName}"${args}`;
         }
         
-        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, pm2Cmd);
+        const pm2Output = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, pm2Cmd);
+        if (pm2Output.includes("ERROR")) {
+            throw new Error(`PM2 Start failed: ${pm2Output}`);
+        }
         
-        // Save PM2 list
         await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 save`);
 
         // 7. Nginx Configuration
@@ -152,13 +199,8 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
         proxy_cache_bypass $http_upgrade;
     }
 }`;
-            // Write config to temp file then move (to avoid permission issues if possible, but we need sudo for /etc/nginx)
-            // Assuming user has sudo or is root. If not root, this might fail.
             const configPath = `/etc/nginx/sites-available/${appName}`;
             const linkPath = `/etc/nginx/sites-enabled/${appName}`;
-            
-            // We use a tricky way to write file with sudo: echo 'content' | sudo tee file
-            // Escape single quotes in config?
             const safeConfig = nginxConfig.replace(/'/g, "'\\''");
             
             const writeNginxCmd = `echo '${safeConfig}' | sudo tee ${configPath}`;
@@ -171,18 +213,18 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
             const reloadOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, reloadCmd);
             
             if (reloadOutput.includes("fail") || reloadOutput.includes("error")) {
-                 log("Nginx reload failed. Check syntax.");
-                 logs.push(`Nginx Error: ${reloadOutput}`);
+                 log("Nginx warning: Configuration might be invalid.");
+                 logs.push(`Nginx output: ${reloadOutput}`);
             } else {
                  log("Nginx configured and reloaded.");
             }
         }
 
-        log("Deployment successful!");
+        log("Deployment completed successfully!");
         return { success: true, message: "Deployment successful", logs };
 
     } catch (error: any) {
-        log(`Error: ${error.message}`);
+        log(`CRITICAL ERROR: ${error.message}`);
         console.error("Deploy Error:", error);
         return { success: false, message: error.message, logs };
     }
