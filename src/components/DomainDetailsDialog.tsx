@@ -18,6 +18,26 @@ export default function DomainDetailsDialog({
     const [error, setError] = useState<string | null>(null);
     const [process, setProcess] = useState<Pm2Process | null>(null);
     const [fullList, setFullList] = useState<Pm2Process[]>([]);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDelete = async () => {
+        if (!process) return;
+        if (!confirm(`Are you sure you want to delete ${process.name}?\nThis will stop the process and remove Nginx configuration.`)) return;
+
+        setIsDeleting(true);
+        try {
+            const result = await import("@/app/actions/deploy").then(mod => mod.deleteApp(config, process.name));
+            if (result.success) {
+                onClose();
+            } else {
+                alert("Failed to delete: " + result.message);
+            }
+        } catch (e: any) {
+            alert("Error: " + e.message);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     useEffect(() => {
         if (!isOpen) return;
@@ -227,10 +247,30 @@ export default function DomainDetailsDialog({
                 {/* Footer */}
                 {process && (
                     <div className="p-4 border-t border-white/10 bg-white/[0.02] flex justify-between items-center">
-                        <div className="text-[10px] text-zinc-600 font-mono">
-                            Last updated: {new Date(process.pm2_env.pm_uptime).toLocaleString()}
-                        </div>
-                        <div className="flex gap-2">
+                        <button
+                            onClick={handleDelete}
+                            disabled={isDeleting}
+                            className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs font-bold text-red-500 hover:text-red-400 transition-colors flex items-center gap-2"
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete App
+                                </>
+                            )}
+                        </button>
+
+                        <div className="flex gap-4 items-center">
+                            <div className="text-[10px] text-zinc-600 font-mono">
+                                Last updated: {new Date(process.pm2_env.pm_uptime).toLocaleString()}
+                            </div>
                             <button onClick={onClose} className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-300 transition-colors">
                                 Close
                             </button>

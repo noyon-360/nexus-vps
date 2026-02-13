@@ -221,3 +221,41 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
         return { success: false, message: error.message, logs, steps };
     }
 }
+
+export async function deleteApp(config: VpsConnectionData, appName: string) {
+    const { ip, user, password } = config;
+    try {
+        const sessionId = `delete_${appName}_${Date.now()}`;
+        
+        // 1. Stop and Delete PM2 Process
+        try {
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 delete ${appName}`);
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 save`);
+        } catch (e) {
+            console.warn(`PM2 delete failed (might verify later): ${e}`);
+        }
+
+        // 2. Remove Nginx Config
+        const availablePath = `/etc/nginx/sites-available/${appName}`;
+        const enabledPath = `/etc/nginx/sites-enabled/${appName}`;
+        
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo rm -f ${enabledPath}`);
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo rm -f ${availablePath}`);
+
+        // 3. Reload Nginx
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo systemctl reload nginx`);
+        
+        // 4. Remove Project Directory
+        // Sanitize again just to be safe (though input should be safe)
+        const safeAppName = appName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+        if (safeAppName && safeAppName.length > 1) {
+             const projectDir = `/var/www/${safeAppName}`;
+             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo rm -rf ${projectDir}`);
+        }
+
+        return { success: true, message: `Application ${appName} deleted successfully.` };
+    } catch (error: any) {
+        console.error("Delete app failed:", error);
+        return { success: false, message: `Failed to delete app: ${error.message}` };
+    }
+}
