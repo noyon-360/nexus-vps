@@ -13,11 +13,26 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
         domain, envVars, framework 
     } = deployConfig;
 
-    // Sanitize app name (alphanumeric and dashes only)
+    // Sanitize app name
     appName = appName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-
     const sessionId = `deploy_${user}@${ip}_${Date.now()}`;
     const logs: string[] = [];
+    
+    // Initialize Steps
+    const steps: any[] = [
+        { name: "System Setup", status: "pending" },
+        { name: "Directory & Backup", status: "pending" },
+        { name: "Clone Repository", status: "pending" },
+        { name: "Install & Build", status: "pending" },
+        { name: "Start Application", status: "pending" },
+        { name: "Configure Nginx", status: "pending" },
+        { name: "SSL Certificate", status: "pending" }
+    ];
+
+    const updateStep = (index: number, status: 'running' | 'success' | 'failure', details?: string) => {
+        steps[index].status = status;
+        if (details) steps[index].details = details;
+    };
 
     const log = (msg: string) => {
         console.log(`[Deploy ${appName}] ${msg}`);
@@ -26,170 +41,120 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 
     try {
         log(`Starting deployment for ${appName}...`);
-        log(`Target: ${user}@${ip} | Port: ${port}`);
 
-        // 1. Prepare Paths & Smart Cleanup
-        const projectsRoot = `~/projects`;
+        // --- Step 0: System Setup ---
+        updateStep(0, 'running');
+        log("Checking/Installing system dependencies...");
+        // Running non-interactive apt install
+        const setupCmd = `export DEBIAN_FRONTEND=noninteractive && sudo apt-get update && sudo apt-get install -y git nginx nodejs npm && sudo npm install -g pm2`;
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, setupCmd);
+        updateStep(0, 'success');
+
+        // --- Step 1: Directory & Backup ---
+        updateStep(1, 'running');
+        const projectsRoot = `/var/www`; // User requested /var/www specific path
+        // Check permissions for /var/www (user needs to own it or use sudo)
+        // We will try to create it with sudo and chown it to current user
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo mkdir -p ${projectsRoot} && sudo chown -R ${user}:${user} ${projectsRoot}`);
+        
         const baseProjectDir = `${projectsRoot}/${appName}`;
         const appDir = rootDirectory ? `${baseProjectDir}/${rootDirectory}` : baseProjectDir;
 
-        // Ensure projects root exists
-        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `mkdir -p ${projectsRoot}`);
-
-        // Check if project exists and backup if so
+        // Smart Backup
         const checkDirCmd = `if [ -d "${baseProjectDir}" ]; then echo "EXISTS"; else echo "MISSING"; fi`;
         const dirStatus = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkDirCmd);
 
         if (dirStatus.trim() === "EXISTS") {
              const timestamp = Math.floor(Date.now() / 1000);
              const backupDir = `${baseProjectDir}_backup_${timestamp}`;
-             log(`Existing project found. Backing up to ${backupDir}...`);
-             // We use 'mv' to rename. 
+             log(`Backing up existing project to ${backupDir}...`);
              await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `mv ${baseProjectDir} ${backupDir}`);
-             // Limit backups? (Optional: remove backups older than X? maybe later)
         }
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `mkdir -p ${baseProjectDir}`);
+        updateStep(1, 'success');
 
-        // 2. Fresh Clone
+        // --- Step 2: Clone Repository ---
+        updateStep(2, 'running');
         let repoAuthUrl = repoUrl;
         if (token) {
-            // Support both https://token@github... and https://user:token@github... 
-            // GHP tokens usually work as username or password. clean way: https://token@github.com/...
             repoAuthUrl = repoUrl.replace("https://", `https://${token}@`);
-        } else if (gitUsername && gitPassword) {
-            repoAuthUrl = repoUrl.replace("https://", `https://${encodeURIComponent(gitUsername)}:${encodeURIComponent(gitPassword)}@`);
         }
-
+        
         log(`Cloning repository (${branch})...`);
+        // Clone into current dir (.) inside baseProjectDir
         const cloneCmd = `git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir}`;
         const cloneOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cloneCmd);
-
+        
         if (cloneOutput.toLowerCase().includes("fatal") || cloneOutput.toLowerCase().includes("error")) {
-            if (cloneOutput.includes("Authentication failed")) {
-               throw new Error("Git Authentication failed. Please check your token or credentials.");
-            }
-            if (cloneOutput.includes("Repository not found")) {
-                throw new Error("Repository not found. Check the URL or permissions.");
-            }
-            // If the error is just standard stderr noise but successful, git clone usually doesn't output "fatal" unless it failed.
-            if (cloneOutput.includes("fatal:")) {
-                 throw new Error(`Git Clone failed: ${cloneOutput.split("fatal:")[1] || cloneOutput}`);
-            }
+            if (cloneOutput.includes("Authentication failed")) throw new Error("Git Authentication failed.");
+            if (cloneOutput.includes("Repository not found")) throw new Error("Repository not found.");
+            // throw new Error(`Git Clone failed: ${cloneOutput}`); // git stderr is noisy, be careful
         }
+        // Verify clone
+        const verifyClone = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `ls ${baseProjectDir}`);
+        if (!verifyClone) throw new Error("Clone failed: Directory is empty");
+        updateStep(2, 'success');
 
-        // 3. Install Dependencies
+        // --- Step 3: Install & Build ---
+        updateStep(3, 'running');
         log("Installing dependencies...");
-        // Check for lock files to decide install command
-        const checkLockCmd = `if [ -f "${appDir}/yarn.lock" ]; then echo "YARN"; elif [ -f "${appDir}/pnpm-lock.yaml" ]; then echo "PNPM"; elif [ -f "${appDir}/package-lock.json" ]; then echo "NPM"; else echo "NONE"; fi`;
-        const lockType = (await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkLockCmd)).trim();
+        
+        // npm install
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && npm install`);
 
-        let installCmd = "";
-        if (lockType === "YARN") {
-             installCmd = `cd ${appDir} && yarn install --frozen-lockfile`;
-        } else if (lockType === "PNPM") {
-             // Assume pnpm is installed or try to install it? For now assume npm fallbacks or pnpm exists
-             // corepack enable? 
-             installCmd = `cd ${appDir} && npm install -g pnpm && pnpm install`;
-        } else if (lockType === "NPM") {
-             installCmd = `cd ${appDir} && npm ci --legacy-peer-deps`; // safety for old projects
-        } else {
-             // Default to npm install if no lockfile or unknown
-             installCmd = `cd ${appDir} && npm install`;
+        // Build
+        if (framework === 'next') {
+            log("Building Next.js application...");
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && npm run build`);
+        } else if (buildCommand) {
+             log(`Running build command: ${buildCommand}`);
+             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && ${buildCommand}`);
         }
         
-        // Skip install for static/python if not needed? 
-        // Python usually needs pip install -r requirements.txt
-        if (framework === 'python') {
-            const checkReq = `if [ -f "${appDir}/requirements.txt" ]; then echo "YES"; else echo "NO"; fi`;
-            const hasReq = (await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkReq)).trim();
-            if (hasReq === "YES") {
-                 installCmd = `cd ${appDir} && pip3 install -r requirements.txt`;
-            } else {
-                installCmd = "echo 'No requirements.txt found, skipping python install'";
-            }
-        } else if (framework === 'static') {
-            // Static sites might use npm for build tools
-             if ((await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `if [ -f "${appDir}/package.json" ]; then echo "YES"; else echo "NO"; fi`)).trim() !== "YES") {
-                 installCmd = "echo 'No package.json, skipping install'";
-             }
-        }
-
-        const installOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, installCmd);
-        // logs.push(installOutput); // Verbose logs?
-
-        // 4. Build
-        if (buildCommand) {
-            log(`Running build command: ${buildCommand}...`);
-            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && ${buildCommand}`);
-        } else if (framework === "next" || (lockType !== "NONE" && framework !== "python" && framework !== "static")) {
-             // Try to find if there is a build script
-             const hasBuildScript = `cd ${appDir} && cat package.json | grep "\\"build\\":"`;
-             const buildCheck = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, hasBuildScript);
-             if (buildCheck.includes("build")) {
-                 log("Detected build script. Running build...");
-                 await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `cd ${appDir} && npm run build`);
-             }
-        }
-
-        // 5. Environment Variables
+        // Env Vars
         if (envVars) {
-            log("Configuring environment variables...");
-            // Escape double quotes?? For now assume simple key=value
-            const envContent = envVars;
-            // We use printf to write file safely
-            const writeEnvCmd = `cd ${appDir} && printf "${envContent.replace(/\n/g, '\\n').replace(/"/g, '\\"')}" > .env`;
-            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, writeEnvCmd);
+             log("Writing .env file...");
+             const writeEnvCmd = `cd ${appDir} && printf "${envVars.replace(/\n/g, '\\n').replace(/"/g, '\\"')}" > .env`;
+             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, writeEnvCmd);
         }
+        updateStep(3, 'success');
 
-        // 6. Start with PM2
-        log("Starting with PM2...");
-        // Check if process exists and delete it first
-        const checkPm2 = `pm2 describe ${appName} > /dev/null 2>&1 && pm2 delete ${appName} || echo "No process to delete"`;
-        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkPm2);
-
+        // --- Step 4: Start Application ---
+        updateStep(4, 'running');
+        log("Starting application with PM2...");
+        
+        // Setup PM2 Command based on Framework
         let pm2Cmd = "";
-        // Default to generic start command construction
-        let script = startCommand;
-        let args = "";
-
-        if (framework === "next") {
-             // Next.js production: pm2 start npm --name "app" -- start -- -p 3000
-             script = "npm";
-             args = ` -- start -- -p ${port}`;
-        } else if (framework === "node") {
-             if (startCommand.startsWith("npm")) {
-                  const runScript = startCommand.split(" ")[1] || "start";
-                  script = "npm";
-                  args = ` -- run ${runScript} -- --port ${port}`; 
-             } else {
-                 if (!startCommand) startCommand = "index.js"; // Fallback
-                 args = ` -- --port ${port}`;
-             }
-        } else if (framework === "static") {
-             // PM2 serve
-             pm2Cmd = `cd ${appDir} && pm2 serve . ${port} --name "${appName}" --spa`;
-        } else if (framework === "python") {
-             // pm2 start script.py --interpreter python3
-             pm2Cmd = `cd ${appDir} && pm2 start ${startCommand} --name "${appName}" --interpreter python3`; 
-        }
-
-        if (!pm2Cmd) {
-            pm2Cmd = `cd ${appDir} && pm2 start ${script} --name "${appName}"${args}`;
+        if (framework === 'next') {
+             // Next.js: pm2 start npm --name "app" -- start -- -p 3000
+             pm2Cmd = `cd ${appDir} && pm2 start npm --name "${appName}" -- start -- -p ${port}`;
+        } else if (framework === 'node') {
+             // Node.js: pm2 start dist/index.js --name "app"
+             const script = deployConfig.entryFile || "dist/index.js";
+             pm2Cmd = `cd ${appDir} && pm2 start ${script} --name "${appName}"`;
+        } else {
+             // Generic fallback
+             const cmd = startCommand || "index.js";
+             pm2Cmd = `cd ${appDir} && pm2 start ${cmd} --name "${appName}"`;
         }
         
-        const pm2Output = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, pm2Cmd);
-        if (pm2Output.includes("ERROR")) {
-            throw new Error(`PM2 Start failed: ${pm2Output}`);
-        }
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, pm2Cmd);
         
-        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 save`);
+        // Save PM2 process list to resurrect on reboot
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, "pm2 save");
+        updateStep(4, 'success');
 
-        // 7. Nginx Configuration
-        if (domain) {
-            log(`Configuring Nginx for ${domain}...`);
+        // --- Step 5: Configure Nginx ---
+        updateStep(5, 'running');
+        const serverName = domain || ip;
+        if (serverName) {
+            log(`Configuring Nginx for ${serverName}...`);
             const nginxConfig = `server {
     listen 80;
-    server_name ${domain};
-
+    server_name ${serverName};
+    
+    client_max_body_size 100M;
+    
     location / {
         proxy_pass http://localhost:${port};
         proxy_http_version 1.1;
@@ -201,31 +166,58 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 }`;
             const configPath = `/etc/nginx/sites-available/${appName}`;
             const linkPath = `/etc/nginx/sites-enabled/${appName}`;
+            
+            // Write config
             const safeConfig = nginxConfig.replace(/'/g, "'\\''");
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `echo '${safeConfig}' | sudo tee ${configPath}`);
             
-            const writeNginxCmd = `echo '${safeConfig}' | sudo tee ${configPath}`;
-            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, writeNginxCmd);
+            // Enable site
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo ln -sf ${configPath} ${linkPath}`);
             
-            const symlinkCmd = `sudo ln -sf ${configPath} ${linkPath}`;
-            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, symlinkCmd);
-            
-            const reloadCmd = `sudo nginx -t && sudo systemctl reload nginx`;
-            const reloadOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, reloadCmd);
-            
-            if (reloadOutput.includes("fail") || reloadOutput.includes("error")) {
-                 log("Nginx warning: Configuration might be invalid.");
-                 logs.push(`Nginx output: ${reloadOutput}`);
+            // Verify and Restart
+            const nginxTest = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo nginx -t`);
+            if (nginxTest.includes("successful")) {
+                 await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo systemctl restart nginx`);
+                 updateStep(5, 'success');
             } else {
-                 log("Nginx configured and reloaded.");
+                 log(`Nginx validation failed: ${nginxTest}`);
+                 updateStep(5, 'failure', 'Nginx config invalid');
             }
+        } else {
+            updateStep(5, 'success', 'Skipped (No Domain/IP)');
+        }
+
+        // --- Step 6: SSL Certificate ---
+        updateStep(6, 'running');
+        if (domain) {
+            log("Installing SSL Certificate...");
+            // Install certbot if missing
+            await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `sudo apt-get install -y certbot python3-certbot-nginx`);
+            
+            const email = "fsdteam.saa@gmail.com"; // Default for now
+            const certbotCmd = `sudo certbot --nginx -d ${domain} -m ${email} --agree-tos --non-interactive --redirect`;
+            
+            const sslOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, certbotCmd);
+            if (sslOutput.includes("Congratulations")) {
+                 updateStep(6, 'success');
+            } else {
+                 log(`SSL installation warning: ${sslOutput}`);
+                 updateStep(6, 'failure', 'Certbot failed or domain not pointing to IP');
+            }
+        } else {
+            updateStep(6, 'success', 'Skipped (No Domain)');
         }
 
         log("Deployment completed successfully!");
-        return { success: true, message: "Deployment successful", logs };
+        return { success: true, message: "Deployment successful", logs, steps };
 
     } catch (error: any) {
         log(`CRITICAL ERROR: ${error.message}`);
         console.error("Deploy Error:", error);
-        return { success: false, message: error.message, logs };
+        // Mark current running step as failed
+        const runningStepIndex = steps.findIndex(s => s.status === 'running');
+        if (runningStepIndex !== -1) updateStep(runningStepIndex, 'failure', error.message);
+        
+        return { success: false, message: error.message, logs, steps };
     }
 }

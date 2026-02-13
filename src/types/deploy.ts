@@ -9,13 +9,21 @@ export interface DeployConfig {
     startCommand: string;
     buildCommand?: string;
     rootDirectory?: string;
+    entryFile?: string;
     domain?: string;
     envVars?: string; // KEY=VALUE\nKEY2=VALUE
     framework: "node" | "next" | "static" | "python" | "other";
+}
+
+export interface DeployStep {
+    name: string;
+    status: 'pending' | 'running' | 'success' | 'failure';
+    details?: string;
 }
 
 export interface DeployResult {
     success: boolean;
     message: string;
     logs: string[];
+    steps: DeployStep[];
 }

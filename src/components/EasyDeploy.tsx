@@ -35,25 +35,7 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleDeploy = async () => {
-        setIsLoading(true);
-        setDeployStats(null);
-        try {
-            const result = await deployProject(config, formData);
-            setDeployStats(result);
-            if (result.success && onSuccess) {
-                onSuccess();
-            }
-        } catch (error: any) {
-            setDeployStats({
-                success: false,
-                message: error.message,
-                logs: ["Deployment failed due to client-side error."]
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
+
 
     const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const url = e.target.value;
@@ -87,29 +69,7 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     const [branches, setBranches] = useState<any[]>([]);
     const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
-    const handleConnect = async () => {
-        if (!githubToken) return;
-        setIsConnecting(true);
-        try {
-            const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(githubToken));
-            if (result.success) {
-                setRepos(result.repos);
-                setIsConnected(true);
-                // Also update the token in formData since we'll need it for private cloning
-                setFormData(prev => ({ ...prev, token: githubToken }));
-            } else {
-                setDeployStats({
-                    success: false,
-                    message: result.message || "Failed to connect",
-                    logs: ["GitHub Connection Failed"]
-                });
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsConnecting(false);
-        }
-    };
+
 
     const handleSelectRepo = async (repo: any) => {
         setFormData(prev => ({
@@ -143,6 +103,67 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     };
 
     const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const [activeTab, setActiveTab] = useState<'activity' | 'console'>('activity');
+
+    // Auto-fill commands based on Framework
+    // ensuring we don't overwrite user changes if they switch back and forth too much, 
+    // but for "Easy" deploy, opinions are good.
+    const [lastFramework, setLastFramework] = useState(formData.framework);
+    if (formData.framework !== lastFramework) {
+        setLastFramework(formData.framework);
+        if (formData.framework === 'next') {
+            setFormData(prev => ({ ...prev, startCommand: "npm start", buildCommand: "npm run build" }));
+        } else if (formData.framework === 'node') {
+            setFormData(prev => ({ ...prev, startCommand: "dist/index.js", buildCommand: "npm install && tsc" }));
+        }
+    }
+
+    const handleConnect = async () => {
+        if (!githubToken) return;
+        setIsConnecting(true);
+        try {
+            const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(githubToken));
+            if (result.success) {
+                setRepos(result.repos);
+                setIsConnected(true);
+                setFormData(prev => ({ ...prev, token: githubToken }));
+            } else {
+                setDeployStats({
+                    success: false,
+                    message: result.message || "Failed to connect",
+                    logs: ["GitHub Connection Failed"],
+                    steps: []
+                });
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
+    const handleDeploy = async () => {
+        setIsLoading(true);
+        setDeployStats(null);
+        setActiveTab('activity'); // Switch to activity view on start
+        try {
+            const result = await deployProject(config, formData);
+            setDeployStats(result);
+            if (result.success && onSuccess) {
+                onSuccess();
+            }
+        } catch (error: any) {
+            setDeployStats({
+                success: false,
+                message: error.message,
+                logs: ["Deployment failed due to client-side error."],
+                steps: []
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
         <div className="bg-[#050505] rounded-xl border border-white/5 overflow-hidden h-full flex flex-col">
@@ -310,8 +331,8 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                                 value={formData.framework} onChange={handleChange}
                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none"
                             >
-                                <option value="node">Node.js</option>
-                                <option value="next">Next.js</option>
+                                <option value="node">Node.js (Backend)</option>
+                                <option value="next">Next.js (Dashboard/App)</option>
                                 <option value="static">Static Site (HTML/JS)</option>
                                 <option value="python">Python</option>
                                 <option value="other">Other / Docker</option>
@@ -333,22 +354,35 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 font-mono"
                             />
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-xs text-zinc-400">Start Command</label>
-                            <div className="relative">
-                                <Terminal className="absolute left-3 top-2.5 text-zinc-600" size={14} />
+                        {formData.framework === 'node' ? (
+                            <div className="space-y-2">
+                                <label className="text-xs text-zinc-400">Entry File (Main Script)</label>
                                 <input
-                                    name="startCommand"
-                                    value={formData.startCommand} onChange={handleChange}
-                                    placeholder={
-                                        formData.framework === 'node' ? 'npm start' :
-                                            formData.framework === 'python' ? 'gunicorn app:app' :
-                                                './start.sh'
-                                    }
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 font-mono"
+                                    name="entryFile"
+                                    value={formData.entryFile || ''}
+                                    onChange={handleChange}
+                                    placeholder="dist/index.js"
+                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 font-mono"
                                 />
                             </div>
-                        </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <label className="text-xs text-zinc-400">Start Command</label>
+                                <div className="relative">
+                                    <Terminal className="absolute left-3 top-2.5 text-zinc-600" size={14} />
+                                    <input
+                                        name="startCommand"
+                                        value={formData.startCommand} onChange={handleChange}
+                                        placeholder={
+                                            formData.framework === 'next' ? 'npm start' :
+                                                formData.framework === 'python' ? 'gunicorn app:app' :
+                                                    './start.sh'
+                                        }
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary/50 font-mono"
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <div className="md:col-span-2 space-y-1">
                             <label className="text-xs text-zinc-400">Root Directory (Optional)</label>
                             <input
@@ -468,23 +502,62 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                         {isLoading ? "INITIALIZING DEPLOYMENT..." : "CREATE WEB SERVICE"}
                     </button>
 
+                    {/* Results / Activity Tab */}
                     {deployStats && (
-                        <div className={`p-4 rounded-lg border ${deployStats.success ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-                            <div className="flex items-center gap-2 mb-2">
-                                {deployStats.success ? (
-                                    <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
-                                ) : (
-                                    <ShieldAlert size={16} className="text-red-500" />
-                                )}
-                                <span className={`text-sm font-medium ${deployStats.success ? 'text-green-400' : 'text-red-400'}`}>
-                                    {deployStats.message}
-                                </span>
+                        <div className={`rounded-xl border border-white/10 overflow-hidden bg-black/50`}>
+                            {/* Tabs */}
+                            <div className="flex items-center border-b border-white/10 bg-white/5">
+                                <button
+                                    onClick={() => setActiveTab('activity')}
+                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'activity' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    Activity Progress
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('console')}
+                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'console' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    Console Logs
+                                </button>
                             </div>
 
-                            <div className="mt-2 bg-black/50 rounded-lg p-3 max-h-[200px] overflow-y-auto font-mono text-[10px] text-zinc-400 border border-white/5">
-                                {deployStats.logs.map((log, i) => (
-                                    <div key={i} className="py-0.5 border-b border-white/5 last:border-0">{log}</div>
-                                ))}
+                            {/* Content */}
+                            <div className="p-4">
+                                {activeTab === 'activity' && (
+                                    <div className="space-y-4">
+                                        <div className={`p-3 rounded-lg border flex items-center gap-3 ${deployStats.success ? 'bg-green-500/10 border-green-500/20' : deployStats.message.includes('failed') ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
+                                            {deployStats.success ? <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" /> : !isLoading ? <ShieldAlert size={16} className="text-red-500" /> : <Loader2 size={16} className="text-blue-500 animate-spin" />}
+                                            <span className="text-sm font-bold text-white uppercase">{deployStats.message || "Deploying..."}</span>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {deployStats.steps.map((step, i) => (
+                                                <div key={i} className="flex items-center gap-3 p-2 rounded hover:bg-white/5">
+                                                    <div className="shrink-0 w-5 flex justify-center">
+                                                        {step.status === 'success' && <div className="w-2 h-2 rounded-full bg-green-500" />}
+                                                        {step.status === 'failure' && <div className="w-2 h-2 rounded-full bg-red-500" />}
+                                                        {step.status === 'running' && <Loader2 size={12} className="text-blue-400 animate-spin" />}
+                                                        {step.status === 'pending' && <div className="w-2 h-2 rounded-full bg-zinc-700" />}
+                                                    </div>
+                                                    <div className="flex-grow">
+                                                        <span className={`text-xs font-medium ${step.status === 'running' ? 'text-blue-400' : step.status === 'success' ? 'text-green-400' : step.status === 'failure' ? 'text-red-400' : 'text-zinc-500'}`}>
+                                                            {step.name}
+                                                        </span>
+                                                        {step.details && <p className="text-[10px] text-zinc-600">{step.details}</p>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'console' && (
+                                    <div className="bg-black rounded-lg p-3 max-h-[300px] overflow-y-auto font-mono text-[10px] text-zinc-400 border border-white/5 custom-scrollbar">
+                                        {deployStats.logs.map((log, i) => (
+                                            <div key={i} className="py-0.5 border-b border-white/5 last:border-0">{log}</div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
