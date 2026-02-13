@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SshSessionManager, sshSessions } from "@/lib/ssh-session-manager";
+import { SshSessionManager, sshConnections } from "@/lib/ssh-session-manager";
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
@@ -27,11 +27,8 @@ export async function GET(req: NextRequest) {
                 // In prod, use a unique session ID.
                 const sessionId = `${user}@${host}`;
                 
-                // Check if session exists and recreate if stream is dead
-                let session = sshSessions.get(sessionId);
-                if (!session || !session.stream.writable) {
-                     session = await SshSessionManager.getOrCreateSession(sessionId, { host, user, password });
-                }
+                // Get or create session (now returns {client, stream})
+                const session = await SshSessionManager.getOrCreateSession(sessionId, { host, user, password });
 
                 // Attach data listener
                 const onData = (data: Buffer) => {

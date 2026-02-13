@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SshSessionManager, sshSessions } from "@/lib/ssh-session-manager";
+import { SshSessionManager, sshConnections } from "@/lib/ssh-session-manager";
 
 export async function POST(req: NextRequest) {
     try {
@@ -11,18 +11,18 @@ export async function POST(req: NextRequest) {
         }
 
         const sessionId = `${user}@${host}`;
-        const session = sshSessions.get(sessionId);
+        const connection = sshConnections.get(sessionId);
 
-        if (!session) {
+        if (!connection || !connection.shell) {
             return new NextResponse("Session not found", { status: 404 });
         }
 
         if (data) {
-            session.stream.write(data);
+            connection.shell.write(data);
         }
 
         if (cols && rows) {
-            session.stream.setWindow(rows, cols, 0, 0);
+            connection.shell.setWindow(rows, cols, 0, 0);
         }
 
         return new NextResponse("OK", { status: 200 });

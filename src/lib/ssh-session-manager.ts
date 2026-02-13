@@ -1,66 +1,66 @@
 import { Client, ClientChannel } from "ssh2";
 
-interface Session {
+interface SshConnection {
     client: Client;
-    stream: ClientChannel;
+    shell?: ClientChannel;
     lastActive: number;
+    isConnecting?: Promise<SshConnection>;
 }
 
 // Global variable to hold sessions in development (to survive HMR)
-const globalForSsh = global as unknown as { sshSessions: Map<string, Session> };
+const globalForSsh = global as unknown as { sshConnections: Map<string, SshConnection> };
 
-export const sshSessions = globalForSsh.sshSessions || new Map<string, Session>();
+export const sshConnections = globalForSsh.sshConnections || new Map<string, SshConnection>();
 
-if (process.env.NODE_ENV !== "production") globalForSsh.sshSessions = sshSessions;
+if (process.env.NODE_ENV !== "production") globalForSsh.sshConnections = sshConnections;
 
 export class SshSessionManager {
-    static async getOrCreateSession(id: string, config: any): Promise<Session> {
-        if (sshSessions.has(id)) {
-            const session = sshSessions.get(id)!;
-            // Check if stream is writable
-            if (session.stream.writable) {
-                session.lastActive = Date.now();
-                return session;
-            }
-            // If not writable, cleanup and reconnect
-            session.client.end();
-            sshSessions.delete(id);
+    private static async getConnection(id: string, config: any): Promise<SshConnection> {
+        let connection = sshConnections.get(id);
+
+        // If active connection exists and ready
+        if (connection && !connection.isConnecting) {
+            // Check if client is still writable/connected roughly
+            // ssh2 client doesn't have a simple 'connected' prop, but we can rely on 'close' event cleanup
+            connection.lastActive = Date.now();
+            return connection;
         }
 
-        return new Promise((resolve, reject) => {
+        // If connecting, wait for it
+        if (connection?.isConnecting) {
+            return connection.isConnecting;
+        }
+
+        // Start new connection
+        const connectPromise = new Promise<SshConnection>((resolve, reject) => {
             const client = new Client();
             
             client.on("ready", () => {
-                client.shell({ term: "xterm-color" }, (err, stream) => {
-                    if (err) {
-                        client.end();
-                        return reject(err);
-                    }
-                    
-                    const session: Session = {
-                        client,
-                        stream,
-                        lastActive: Date.now()
-                    };
-                    
-                    sshSessions.set(id, session);
-                    resolve(session);
-                });
+                const conn: SshConnection = {
+                    client,
+                    lastActive: Date.now()
+                };
+                // Remove the promise wrapper and store actual connection
+                // BUT keep the promise in the map? No, map should store the struct.
+                // We update the map entry to remove 'isConnecting'
+                sshConnections.set(id, conn); 
+                resolve(conn);
             });
 
             client.on("error", (err) => {
                 console.error(`SSH Connection Error (${id}):`, err);
-                sshSessions.delete(id);
+                sshConnections.delete(id);
+                // If we were the ones connecting, rejecting is handled by the promise
                 reject(err);
             });
             
             client.on("close", () => {
-                 sshSessions.delete(id);
+                 sshConnections.delete(id);
             });
 
             try {
                 client.connect({
-                    host: config.host,
+                    host: config.host || config.ip,
                     port: 22,
                     username: config.user,
                     password: config.password,
@@ -71,13 +71,58 @@ export class SshSessionManager {
                 reject(error);
             }
         });
+
+        // Store the promise temporarily so concurrent requests wait
+        // We cast it to SshConnection for storage but handle it carefully
+        const tempConn: SshConnection = {
+            client: null as any, // Placeholder
+            lastActive: Date.now(),
+            isConnecting: connectPromise
+        };
+        sshConnections.set(id, tempConn);
+
+        return connectPromise;
     }
 
-    static getSession(id: string): Session | undefined {
-        return sshSessions.get(id);
+    static async getOrCreateSession(id: string, config: any): Promise<{ client: Client; stream: ClientChannel }> {
+        const conn = await this.getConnection(id, config);
+        
+        // Check if existing shell is alive
+        if (conn.shell && conn.shell.writable) {
+            return { client: conn.client, stream: conn.shell };
+        }
+
+        // Create new shell
+        return new Promise((resolve, reject) => {
+            conn.client.shell({ term: "xterm-color" }, (err, stream) => {
+                if (err) {
+                    // Start over if shell creation fails? or just reject
+                    return reject(err);
+                }
+                conn.shell = stream;
+                resolve({ client: conn.client, stream });
+            });
+        });
     }
 
-    static splitToLines(data: string): string[] {
-        return data.split(/\r?\n/);
+    static async executeCommand(id: string, config: any, command: string): Promise<string> {
+        const conn = await this.getConnection(id, config);
+        
+        return new Promise((resolve, reject) => {
+            conn.client.exec(command, (err, stream) => {
+                if (err) return reject(err);
+
+                let output = "";
+                let error = "";
+                
+                stream.on("data", (data: Buffer) => { output += data.toString(); });
+                stream.on("stderr", (data: Buffer) => { error += data.toString(); });
+                
+                stream.on("close", (code: any, signal: any) => {
+                    resolve(output + error); // Combine for simplicity, or handle error separately
+                });
+            });
+        });
     }
 }
+
