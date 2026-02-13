@@ -7,6 +7,7 @@ import { getSystemStats, SystemStats } from "@/app/actions/vps";
 import dynamic from "next/dynamic";
 
 const TerminalComponent = dynamic(() => import("@/components/Terminal"), { ssr: false });
+const DomainDetailsDialog = dynamic(() => import("@/components/DomainDetailsDialog"), { ssr: false });
 
 function ManageContent() {
     const router = useRouter();
@@ -33,6 +34,7 @@ function ManageContent() {
     const [error, setError] = useState<string | null>(null);
     const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
     const panelRef = useRef<any>(null);
     const sidebarRef = useRef<any>(null);
 
@@ -61,10 +63,20 @@ function ManageContent() {
         // Initial fetch
         fetchStats();
 
-        // Polling every 15 seconds (heavier payload)
+        // Polling every 15 seconds
         const interval = setInterval(fetchStats, 15000);
 
         return () => clearInterval(interval);
+    }, [host, user, encodedPass]);
+
+    const dialogConfig = React.useMemo(() => {
+        let password = "";
+        try {
+            password = atob(encodedPass);
+        } catch {
+            console.error("Failed to decode password");
+        }
+        return { ip: host, user, password };
     }, [host, user, encodedPass]);
 
     return (
@@ -216,15 +228,64 @@ function ManageContent() {
                                                 ) : stats.domains.length === 0 ? (
                                                     <div className="text-center text-xs text-zinc-600 italic py-4">No domains detected</div>
                                                 ) : (
-                                                    stats.domains.map((domain) => (
-                                                        <div key={domain.name} className="flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors group">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className={`w-2 h-2 rounded-full ${domain.status === 'live' ? 'bg-green-500' : 'bg-red-500'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`}></div>
-                                                                <span className="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors">{domain.name}</span>
+                                                    stats.domains.map((domain) => {
+                                                        const cleanName = domain.name.toLowerCase();
+                                                        const serverNames = domain.serverNames || [];
+                                                        const pm2List = stats.pm2Processes || [];
+
+                                                        // enhanced matching: check config name OR server names
+                                                        let match = pm2List.find(p => p.name.toLowerCase() === cleanName);
+
+                                                        if (!match) {
+                                                            // try matching against server names
+                                                            match = pm2List.find(p => serverNames.some(sn => sn.toLowerCase().includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(sn.toLowerCase())));
+                                                        }
+
+                                                        // Fallback matching logic
+                                                        if (!match) match = pm2List.find(p => cleanName.startsWith(p.name.toLowerCase()));
+                                                        if (!match) match = pm2List.find(p => p.name.toLowerCase().includes(cleanName));
+
+                                                        const isOnline = match?.pm2_env?.status === 'online';
+
+                                                        return (
+                                                            <div
+                                                                key={domain.name + domain.file}
+                                                                onClick={() => setSelectedDomain(match ? match.name : domain.name)}
+                                                                className="flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-primary/30 transition-all group cursor-pointer"
+                                                            >
+                                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                                    <div className={`shrink-0 w-2 h-2 rounded-full ${isOnline ? 'bg-green-500' : (match ? 'bg-red-500' : 'bg-zinc-500')} shadow-[0_0_8px_rgba(34,197,94,0.4)]`}></div>
+                                                                    <div className="flex flex-col overflow-hidden">
+                                                                        <span className="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors truncate">{domain.name}</span>
+                                                                        <div className="flex flex-col">
+                                                                            {serverNames.length > 0 && (
+                                                                                <span className="text-[9px] text-zinc-500 truncate" title={serverNames.join(", ")}>
+                                                                                    {serverNames.join(", ")}
+                                                                                </span>
+                                                                            )}
+                                                                            {match && (
+                                                                                <span className="text-[8px] font-mono text-zinc-600 group-hover:text-zinc-400">
+                                                                                    pid: {match.pid} • {match.name}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="shrink-0 text-[10px] text-zinc-600 font-mono flex items-center gap-2 ml-2">
+                                                                    {match ? (
+                                                                        <span className={`flex items-center gap-1.5 ${isOnline ? 'text-green-400' : 'text-red-400'}`}>
+                                                                            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-400' : 'bg-red-400'}`}></span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span>Config</span>
+                                                                    )}
+                                                                    <svg className="w-3 h-3 text-zinc-600 group-hover:text-brand-primary opacity-0 group-hover:opacity-100 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                                                    </svg>
+                                                                </div>
                                                             </div>
-                                                            <div className="text-[10px] text-zinc-600 font-mono">200 OK</div>
-                                                        </div>
-                                                    ))
+                                                        );
+                                                    })
                                                 )}
                                             </div>
                                         </div>
@@ -240,6 +301,16 @@ function ManageContent() {
                                                 ))}
                                             </div>
                                         </div>
+
+                                        {/* Dialog */}
+                                        {selectedDomain && (
+                                            <DomainDetailsDialog
+                                                isOpen={!!selectedDomain}
+                                                onClose={() => setSelectedDomain(null)}
+                                                domainName={selectedDomain}
+                                                config={dialogConfig}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             )}
