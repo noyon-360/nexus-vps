@@ -83,6 +83,8 @@ export async function getSystemStats(config: VpsConnectionData): Promise<{ succe
       (grep "server_name" /etc/nginx/sites-enabled/* 2>/dev/null || grep "ServerName" /etc/apache2/sites-enabled/* 2>/dev/null || echo "No sites found")
       echo "---PM2---"
       (pm2 jlist 2>/dev/null || echo "[]")
+      echo "---PORTS---"
+      (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo "No port info")
     `;
 
     const output = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
@@ -92,6 +94,7 @@ export async function getSystemStats(config: VpsConnectionData): Promise<{ succe
     const processLines = (sections[2] || "").trim().split("\n");
     const domainLines = (sections[3] || "").trim().split("\n");
     const pm2Json = (sections[4] || "[]").trim();
+    const portsOutput = (sections[5] || "").trim();
 
     // Helper to extract value by prefix
     const getVal = (prefix: string) => {
@@ -166,6 +169,51 @@ export async function getSystemStats(config: VpsConnectionData): Promise<{ succe
         console.error("PM2 Parse Error:", e);
     }
 
+    // Parse ports from ss/netstat output
+    // ss output format: State Recv-Q Send-Q Local Address:Port Peer Address:Port Process
+    // Example: LISTEN 0 511 *:3000 *:* users:(("node",pid=1234,fd=18))
+    // netstat format: Proto Recv-Q Send-Q Local Address Foreign Address State PID/Program
+    const portMap = new Map<number, string[]>(); // PID -> [ports]
+    
+    portsOutput.split('\n').forEach(line => {
+        if (!line || line === "No port info") return;
+        
+        // Try to extract PID and port
+        // ss format: look for pid=<number> and extract port from address
+        const ssPidMatch = line.match(/pid=(\d+)/);
+        const ssPortMatch = line.match(/[*:]:(\d+)\s/); // matches *:3000 or 0.0.0.0:3000
+        
+        // netstat format: look for <pid>/<program> at the end
+        const netstatMatch = line.match(/(\d+)\/\S+\s*$/);
+        const netstatPortMatch = line.match(/:(\d+)\s+.*?LISTEN/);
+        
+        let pid: number | null = null;
+        let port: string | null = null;
+        
+        if (ssPidMatch && ssPortMatch) {
+            pid = parseInt(ssPidMatch[1]);
+            port = ssPortMatch[1];
+        } else if (netstatMatch && netstatPortMatch) {
+            pid = parseInt(netstatMatch[1]);
+            port = netstatPortMatch[1];
+        }
+        
+        if (pid && port) {
+            if (!portMap.has(pid)) {
+                portMap.set(pid, []);
+            }
+            if (!portMap.get(pid)!.includes(port)) {
+                portMap.get(pid)!.push(port);
+            }
+        }
+    });
+
+    // Enrich PM2 processes with detected ports
+    pm2Processes = pm2Processes.map(proc => ({
+        ...proc,
+        ports: portMap.get(proc.pid) || []
+    }));
+
     const stats: SystemStats = {
         cpu: cpuVal ? `${parseFloat(cpuVal).toFixed(1)}%` : "0%",
         memory: memVal ? `${memVal}` : "0",
@@ -188,6 +236,7 @@ export interface Pm2Process {
   name: string;
   pid: number;
   pm_id: number;
+  ports?: string[]; // Detected listening ports
   monit: {
     memory: number;
     cpu: number;

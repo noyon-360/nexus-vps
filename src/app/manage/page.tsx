@@ -247,6 +247,10 @@ function ManageContent() {
 
                                                         const isOnline = match?.pm2_env?.status === 'online';
 
+                                                        // Extract ports from detected ports array
+                                                        const ports = match?.ports || [];
+                                                        const portDisplay = ports.length > 0 ? ports.join(', ') : null;
+
                                                         return (
                                                             <div
                                                                 key={domain.name + domain.file}
@@ -265,7 +269,7 @@ function ManageContent() {
                                                                             )}
                                                                             {match && (
                                                                                 <span className="text-[8px] font-mono text-zinc-600 group-hover:text-zinc-400">
-                                                                                    pid: {match.pid} • {match.name}
+                                                                                    pid: {match.pid} • {match.name} {portDisplay && `• :${portDisplay}`}
                                                                                 </span>
                                                                             )}
                                                                         </div>
@@ -274,6 +278,7 @@ function ManageContent() {
                                                                 <div className="shrink-0 text-[10px] text-zinc-600 font-mono flex items-center gap-2 ml-2">
                                                                     {match ? (
                                                                         <span className={`flex items-center gap-1.5 ${isOnline ? 'text-green-400' : 'text-red-400'}`}>
+                                                                            {portDisplay && <span className="text-[9px] text-zinc-500 mr-1">:{portDisplay}</span>}
                                                                             <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-400' : 'bg-red-400'}`}></span>
                                                                         </span>
                                                                     ) : (
