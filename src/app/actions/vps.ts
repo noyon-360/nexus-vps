@@ -3,7 +3,7 @@
 import { Client } from "ssh2";
 import { SshSessionManager } from "@/lib/ssh-session-manager";
 
-interface VpsConnectionData {
+export interface VpsConnectionData {
   ip: string;
   user: string;
   password?: string;

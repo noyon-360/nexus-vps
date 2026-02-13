@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { getSystemStats, SystemStats } from "@/app/actions/vps";
 import dynamic from "next/dynamic";
+import { EasyDeploy } from "@/components/EasyDeploy";
 
 const TerminalComponent = dynamic(() => import("@/components/Terminal"), { ssr: false });
 const DomainDetailsDialog = dynamic(() => import("@/components/DomainDetailsDialog"), { ssr: false });
@@ -417,25 +418,38 @@ function ManageContent() {
                                     </PanelResizeHandle>
 
                                     {/* Terminal Panel */}
-                                    <Panel defaultSize={65} minSize={10} className="bg-[#050505] border border-white/10 rounded-[2.5rem] relative overflow-hidden flex flex-col">
-                                        {/* Terminal Top Bar */}
-                                        <div className="h-10 border-b border-white/5 flex items-center px-6 justify-between bg-black/20 shrink-0">
-                                            <div className="flex gap-1.5">
-                                                <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
-                                                <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
-                                                <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
-                                            </div>
-                                            <div className="text-[9px] font-mono text-zinc-600 tracking-widest font-bold uppercase">SSH / {user}@{host}</div>
-                                            <div className="w-2.5 h-2.5"></div>
+                                    <Panel defaultSize={65} minSize={10} className="flex flex-col gap-4">
+                                        {/* Easy Deploy Section */}
+                                        <div className="shrink-0 px-6">
+                                            <EasyDeploy
+                                                config={dialogConfig}
+                                                onSuccess={() => {
+                                                    // Trigger a refresh of stats
+                                                    setLastUpdated(Date.now().toString());
+                                                }}
+                                            />
                                         </div>
 
-                                        {/* Terminal Content */}
-                                        <div className="flex-grow overflow-hidden relative">
-                                            <TerminalComponent
-                                                host={host}
-                                                user={user}
-                                                encodedPass={encodedPass}
-                                            />
+                                        <div className="flex-grow bg-[#050505] border border-white/10 rounded-[2.5rem] relative overflow-hidden flex flex-col">
+                                            {/* Terminal Top Bar */}
+                                            <div className="h-10 border-b border-white/5 flex items-center px-6 justify-between bg-black/20 shrink-0">
+                                                <div className="flex gap-1.5">
+                                                    <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                                                    <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                                                    <div className="w-2.5 h-2.5 rounded-full bg-white/10"></div>
+                                                </div>
+                                                <div className="text-[9px] font-mono text-zinc-600 tracking-widest font-bold uppercase">SSH / {user}@{host}</div>
+                                                <div className="w-2.5 h-2.5"></div>
+                                            </div>
+
+                                            {/* Terminal Content */}
+                                            <div className="flex-grow overflow-hidden relative">
+                                                <TerminalComponent
+                                                    host={host}
+                                                    user={user}
+                                                    encodedPass={encodedPass}
+                                                />
+                                            </div>
                                         </div>
                                     </Panel>
                                 </PanelGroup>
