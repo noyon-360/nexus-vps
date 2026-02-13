@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getPm2ProcessInfo, Pm2Process } from "@/app/actions/vps";
+import { manageProcess, getPm2Logs, deleteApp } from "@/app/actions/deploy";
 
 interface DomainDetailsDialogProps {
     isOpen: boolean;
@@ -19,14 +20,75 @@ export default function DomainDetailsDialog({
     const [process, setProcess] = useState<Pm2Process | null>(null);
     const [fullList, setFullList] = useState<Pm2Process[]>([]);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [logs, setLogs] = useState<string | null>(null);
+    const [isLogging, setIsLogging] = useState(false);
+    const [isPerformingAction, setIsPerformingAction] = useState<string | null>(null);
+
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await getPm2ProcessInfo(config, domainName);
+            if (result.success) {
+                if (result.process) {
+                    setProcess(result.process);
+                } else if (result.fullList && result.fullList.length > 0) {
+                    setFullList(result.fullList);
+                } else {
+                    setError("No PM2 processes found.");
+                }
+            } else {
+                setError(result.error || "Failed to fetch process info.");
+            }
+        } catch (err: any) {
+            setError(err.message || "Unknown error occurred.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAction = async (action: 'restart' | 'stop' | 'start') => {
+        if (!process) return;
+        setIsPerformingAction(action);
+        try {
+            const result = await manageProcess(config, process.name, action);
+            if (result.success) {
+                // Refresh data
+                await fetchData();
+            } else {
+                alert("Action failed: " + result.message);
+            }
+        } catch (e: any) {
+            alert("Error: " + e.message);
+        } finally {
+            setIsPerformingAction(null);
+        }
+    };
+
+    const fetchLogs = async () => {
+        if (!process) return;
+        setIsLogging(true);
+        try {
+            const result = await getPm2Logs(config, process.name);
+            if (result.success) {
+                setLogs(result.logs || "No logs found.");
+            } else {
+                setLogs("Failed to fetch logs: " + result.message);
+            }
+        } catch (e: any) {
+            setLogs("Error: " + e.message);
+        } finally {
+            setIsLogging(false);
+        }
+    };
 
     const handleDelete = async () => {
         if (!process) return;
-        if (!confirm(`Are you sure you want to delete ${process.name}?\nThis will stop the process and remove Nginx configuration.`)) return;
+        if (!confirm(`Are you sure you want to delete ${process.name}?\nThis will stop the process, remove Nginx configuration, and DELETE PROJECT FILES.`)) return;
 
         setIsDeleting(true);
         try {
-            const result = await import("@/app/actions/deploy").then(mod => mod.deleteApp(config, process.name));
+            const result = await deleteApp(config, process.name);
             if (result.success) {
                 onClose();
             } else {
@@ -41,35 +103,8 @@ export default function DomainDetailsDialog({
 
     useEffect(() => {
         if (!isOpen) return;
-
-        setLoading(true);
-        setError(null);
         setProcess(null);
-
-        async function fetchData() {
-            try {
-                const result = await getPm2ProcessInfo(config, domainName);
-                if (result.success) {
-                    if (result.process) {
-                        setProcess(result.process);
-                    } else if (result.fullList && result.fullList.length > 0) {
-                        setFullList(result.fullList);
-                        // If no exact match, user can maybe select from list? 
-                        // For now just show "No direct match" but list available if we want.
-                        // Actually, I'll store full list and let UI decide.
-                    } else {
-                        setError("No PM2 processes found.");
-                    }
-                } else {
-                    setError(result.error || "Failed to fetch process info.");
-                }
-            } catch (err: any) {
-                setError(err.message || "Unknown error occurred.");
-            } finally {
-                setLoading(false);
-            }
-        }
-
+        setLogs(null);
         fetchData();
     }, [isOpen, domainName, config]);
 
@@ -203,19 +238,45 @@ export default function DomainDetailsDialog({
                                 </div>
                             </div>
 
-                            {/* Raw Env / Extra Data */}
+                            {/* Raw Env / Extra Data - Collapsible or Logs toggle */}
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => setLogs(null)}
+                                    className={`flex-1 py-3 rounded-xl border text-xs font-bold transition-all ${!logs ? 'bg-brand-primary/10 border-brand-primary/30 text-brand-primary' : 'bg-white/5 border-white/5 text-zinc-500 hover:text-white'}`}
+                                >
+                                    Environment
+                                </button>
+                                <button
+                                    onClick={fetchLogs}
+                                    className={`flex-1 py-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${logs ? 'bg-brand-primary/10 border-brand-primary/30 text-brand-primary' : 'bg-white/5 border-white/5 text-zinc-500 hover:text-white'}`}
+                                >
+                                    {isLogging && <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />}
+                                    Process Logs
+                                </button>
+                            </div>
+
                             <div className="bg-black/20 rounded-xl border border-white/5 overflow-hidden">
-                                <div className="p-4 border-b border-white/5 bg-white/[0.01]">
-                                    <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Environment Variables & Config</h3>
-                                </div>
-                                <div className="p-4 max-h-48 overflow-y-auto custom-scrollbar bg-black/40">
-                                    <pre className="text-[10px] text-zinc-500 font-mono leading-relaxed whitespace-pre-wrap">
-                                        {JSON.stringify(process.pm2_env, (key, value) => {
-                                            if (key.includes('pass') || key.includes('secret') || key.includes('key')) return '********';
-                                            return value;
-                                        }, 2)}
-                                    </pre>
-                                </div>
+                                {logs ? (
+                                    <div className="p-4 bg-black/40 min-h-[200px]">
+                                        <pre className="text-[10px] text-zinc-400 font-mono leading-relaxed whitespace-pre-wrap">
+                                            {logs}
+                                        </pre>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="p-4 border-b border-white/5 bg-white/[0.01]">
+                                            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Environment Variables & Config</h3>
+                                        </div>
+                                        <div className="p-4 max-h-48 overflow-y-auto custom-scrollbar bg-black/40">
+                                            <pre className="text-[10px] text-zinc-500 font-mono leading-relaxed whitespace-pre-wrap">
+                                                {JSON.stringify(process.pm2_env, (key, value) => {
+                                                    if (key.includes('pass') || key.includes('secret') || key.includes('key')) return '********';
+                                                    return value;
+                                                }, 2)}
+                                            </pre>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ) : (
@@ -246,35 +307,79 @@ export default function DomainDetailsDialog({
 
                 {/* Footer */}
                 {process && (
-                    <div className="p-4 border-t border-white/10 bg-white/[0.02] flex justify-between items-center">
+                    <div className="p-4 border-t border-white/10 bg-white/[0.02] flex items-center gap-4">
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => handleAction('restart')}
+                                disabled={Boolean(isPerformingAction) || isDeleting}
+                                className="px-4 py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-xs font-bold text-blue-500 transition-colors flex items-center gap-2"
+                            >
+                                {isPerformingAction === 'restart' ? (
+                                    <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                )}
+                                Restart
+                            </button>
+
+                            {process.pm2_env.status === 'online' ? (
+                                <button
+                                    onClick={() => handleAction('stop')}
+                                    disabled={Boolean(isPerformingAction) || isDeleting}
+                                    className="px-4 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 text-xs font-bold text-orange-500 transition-colors flex items-center gap-2"
+                                >
+                                    {isPerformingAction === 'stop' ? (
+                                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    )}
+                                    Stop
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => handleAction('start')}
+                                    disabled={Boolean(isPerformingAction) || isDeleting}
+                                    className="px-4 py-2 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-xs font-bold text-green-500 transition-colors flex items-center gap-2"
+                                >
+                                    {isPerformingAction === 'start' ? (
+                                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    )}
+                                    Start
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="h-4 w-px bg-white/10 mx-2" />
+
                         <button
                             onClick={handleDelete}
-                            disabled={isDeleting}
-                            className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs font-bold text-red-500 hover:text-red-400 transition-colors flex items-center gap-2"
+                            disabled={Boolean(isPerformingAction) || isDeleting}
+                            className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs font-bold text-red-500 transition-colors flex items-center gap-2"
                         >
                             {isDeleting ? (
-                                <>
-                                    <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                                    Deleting...
-                                </>
+                                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
                             ) : (
-                                <>
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                    Delete App
-                                </>
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
                             )}
+                            Delete
                         </button>
 
-                        <div className="flex gap-4 items-center">
-                            <div className="text-[10px] text-zinc-600 font-mono">
-                                Last updated: {new Date(process.pm2_env.pm_uptime).toLocaleString()}
-                            </div>
-                            <button onClick={onClose} className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-300 transition-colors">
-                                Close
-                            </button>
-                        </div>
+                        <div className="flex-grow" />
+
+                        <button onClick={onClose} className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-300 transition-colors">
+                            Close
+                        </button>
                     </div>
                 )}
             </div>

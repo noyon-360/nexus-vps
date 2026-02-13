@@ -124,5 +124,33 @@ export class SshSessionManager {
             });
         });
     }
+    static closeSession(id: string) {
+        const conn = sshConnections.get(id);
+        if (conn) {
+            console.log(`[SSH] Closing session: ${id}`);
+            try {
+                conn.client.end();
+            } catch (e) {
+                console.error(`[SSH] Error closing session ${id}:`, e);
+            }
+            sshConnections.delete(id);
+        }
+    }
+
+    static closeSessionsByPrefix(prefix: string) {
+        for (const [id, conn] of sshConnections.entries()) {
+            if (id.startsWith(prefix)) {
+                this.closeSession(id);
+            }
+        }
+    }
+
+    static closeSessionsPattern(pattern: string) {
+         for (const [id, conn] of sshConnections.entries()) {
+            if (id.includes(pattern)) {
+                this.closeSession(id);
+            }
+        }
+    }
 }
 

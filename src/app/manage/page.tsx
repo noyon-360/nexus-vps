@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
-import { getSystemStats, SystemStats } from "@/app/actions/vps";
+import { getSystemStats, SystemStats, closeAllConnections } from "@/app/actions/vps";
 import dynamic from "next/dynamic";
 import { EasyDeploy } from "@/components/EasyDeploy";
 
@@ -36,10 +36,24 @@ function ManageContent() {
     const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true); // Default to collapsed
+    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true);
+    const [showExitDialog, setShowExitDialog] = useState(false);
+    const [isExiting, setIsExiting] = useState(false);
+
     const panelRef = useRef<any>(null);
     const sidebarRef = useRef<any>(null);
     const terminalPanelRef = useRef<any>(null);
+
+    const handleExit = async () => {
+        setIsExiting(true);
+        let password = "";
+        try { password = atob(encodedPass); } catch { }
+
+        // Close connections
+        await closeAllConnections({ ip: host, user, password });
+
+        router.push("/dashboard");
+    };
 
     useEffect(() => {
         if (!host || host === "0.0.0.0") return;
@@ -52,6 +66,9 @@ function ManageContent() {
         }
 
         const fetchStats = async () => {
+            // If exiting, stop fetching
+            if (isExiting) return;
+
             const result = await getSystemStats({ ip: host, user, password });
             if (result.success && result.stats) {
                 setStats(result.stats);
@@ -70,7 +87,7 @@ function ManageContent() {
         const interval = setInterval(fetchStats, 15000);
 
         return () => clearInterval(interval);
-    }, [host, user, encodedPass]);
+    }, [host, user, encodedPass, isExiting]);
 
     const dialogConfig = React.useMemo(() => {
         let password = "";
@@ -84,6 +101,45 @@ function ManageContent() {
 
     return (
         <div className="flex h-screen bg-black font-sans text-white overflow-hidden">
+            {/* Exit Dialog */}
+            {showExitDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center space-y-4">
+                        <div className="mx-auto w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 mb-2">
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-white">Confirm Exit</h3>
+                            <p className="text-sm text-zinc-400 mt-2">
+                                All active terminal sessions and background commands will be terminated.
+                            </p>
+                        </div>
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setShowExitDialog(false)}
+                                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-300 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleExit}
+                                disabled={isExiting}
+                                className="flex-1 px-4 py-2.5 rounded-xl bg-brand-primary text-black hover:bg-brand-primary/90 text-xs font-bold transition-colors flex justify-center items-center gap-2"
+                            >
+                                {isExiting ? (
+                                    <>
+                                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                        Exiting...
+                                    </>
+                                ) : "Confirm & Exit"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="flex-grow flex flex-col relative">
                 {/* Background Deco */}
                 <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-brand-primary/5 rounded-full blur-[150px] -z-10 translate-x-1/3 -translate-y-1/3"></div>
@@ -93,7 +149,7 @@ function ManageContent() {
                 <header className="h-20 border-b border-white/10 flex items-center justify-between px-8 bg-black/40 backdrop-blur-xl z-20 shrink-0">
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => router.push("/dashboard")}
+                            onClick={() => setShowExitDialog(true)}
                             className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-all group"
                         >
                             <svg className="w-5 h-5 transition-transform group-hover:-translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

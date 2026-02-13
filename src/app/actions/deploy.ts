@@ -259,3 +259,33 @@ export async function deleteApp(config: VpsConnectionData, appName: string) {
         return { success: false, message: `Failed to delete app: ${error.message}` };
     }
 }
+
+export async function manageProcess(config: VpsConnectionData, appName: string, action: 'restart' | 'stop' | 'start') {
+    const { ip, user, password } = config;
+    try {
+        const sessionId = `${action}_${appName}_${Date.now()}`;
+        const cmd = `pm2 ${action} ${appName}`;
+        console.log(`[PM2] Executing: ${cmd}`);
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 save`);
+        
+        return { success: true, message: `Process ${appName} ${action}ed.` };
+    } catch (error: any) {
+        console.error(`PM2 ${action} failed:`, error);
+        return { success: false, message: `Failed to ${action} process: ${error.message}` };
+    }
+}
+
+export async function getPm2Logs(config: VpsConnectionData, appName: string) {
+    const { ip, user, password } = config;
+    try {
+        const sessionId = `logs_${appName}_${Date.now()}`;
+        const cmd = `pm2 logs ${appName} --lines 100 --no-daemon`;
+        const output = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
+        
+        return { success: true, logs: output };
+    } catch (error: any) {
+        console.error("PM2 Logs failed:", error);
+        return { success: false, message: `Failed to fetch logs: ${error.message}` };
+    }
+}

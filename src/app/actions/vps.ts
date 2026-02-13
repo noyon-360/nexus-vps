@@ -331,3 +331,18 @@ export async function getPm2ProcessInfo(config: VpsConnectionData, domainName: s
     });
   });
 }
+
+export async function closeAllConnections(config: VpsConnectionData) {
+    const { ip, user } = config;
+    // We want to close all sessions related to this user and IP
+    // Sessions follow patterns like: stats_user@ip, deploy_user@ip_timestamp, terminal_user@ip
+    // So searching for "user@ip" should cover most of them.
+    const searchPattern = `${user}@${ip}`;
+    console.log(`[VPS] Closing all connections for pattern: ${searchPattern}`);
+    
+    // We can't import SshSessionManager directly if it wasn't exported or if there are circular deps, 
+    // but it is imported at the top of this file.
+    SshSessionManager.closeSessionsPattern(searchPattern);
+    
+    return { success: true, message: "All connections closed" };
+}
