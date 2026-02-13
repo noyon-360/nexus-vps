@@ -11,6 +11,7 @@ interface EasyDeployProps {
     onSuccess?: () => void;
 }
 
+// Easy Deploy Component with GitHub Integration
 export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [deployStats, setDeployStats] = useState<DeployResult | null>(null);
@@ -75,6 +76,73 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     };
 
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+    // GitHub Integration State
+    const [githubToken, setGithubToken] = useState("");
+    const [repos, setRepos] = useState<any[]>([]);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [branches, setBranches] = useState<any[]>([]);
+    const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+
+    const handleConnect = async () => {
+        if (!githubToken) return;
+        setIsConnecting(true);
+        try {
+            const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(githubToken));
+            if (result.success) {
+                setRepos(result.repos);
+                setIsConnected(true);
+                // Also update the token in formData since we'll need it for private cloning
+                setFormData(prev => ({ ...prev, token: githubToken }));
+            } else {
+                setDeployStats({
+                    success: false,
+                    message: result.message || "Failed to connect",
+                    logs: ["GitHub Connection Failed"]
+                });
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
+    const handleSelectRepo = async (repo: any) => {
+        setFormData(prev => ({
+            ...prev,
+            repoUrl: repo.html_url,
+            appName: repo.name,
+            branch: repo.default_branch,
+            // Guess framework
+            framework:
+                repo.language === 'TypeScript' || repo.language === 'JavaScript' ? 'node' :
+                    repo.language === 'Python' ? 'python' :
+                        'other'
+        }));
+        setIsPickerOpen(false); // Close picker after selection
+
+        // Fetch Branches
+        setIsLoadingBranches(true);
+        setBranches([]);
+        try {
+            // Repo full_name is "owner/repo"
+            const [owner, name] = repo.full_name.split('/');
+            const result = await import("@/app/actions/github").then(mod => mod.fetchGithubBranches(githubToken, owner, name));
+            if (result.success) {
+                setBranches(result.branches);
+            }
+        } catch (e) {
+            console.error("Failed to fetch branches", e);
+        } finally {
+            setIsLoadingBranches(false);
+        }
+    };
+
+    const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
         <div className="bg-[#050505] rounded-xl border border-white/5 overflow-hidden h-full flex flex-col">
@@ -94,28 +162,129 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
 
                 {/* 1. Source Code */}
                 <div className="space-y-4">
-                    <h4 className="text-xs font-black text-zinc-500 uppercase tracking-[0.2em] border-b border-white/5 pb-2">Source Code</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="md:col-span-2 space-y-1">
-                            <label className="text-xs text-zinc-400">GitHub Repository URL</label>
-                            <div className="relative">
-                                <Github className="absolute left-3 top-2.5 text-zinc-600" size={14} />
-                                <input
-                                    name="repoUrl" required
-                                    value={formData.repoUrl} onChange={handleUrlChange}
-                                    placeholder="https://github.com/username/repository"
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
-                                />
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                        <h4 className="text-xs font-black text-zinc-500 uppercase tracking-[0.2em]">Source Code</h4>
+                        {/* Status Indicator if connected */}
+                        {isConnected && !isPickerOpen && (
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20">
+                                <Github size={10} className="text-green-400" />
+                                <span className="text-[10px] font-bold text-green-400">Connected</span>
                             </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2 space-y-2">
+                            <label className="text-xs text-zinc-400">GitHub Repository URL</label>
+                            <div className="flex gap-2">
+                                <div className="relative flex-grow">
+                                    <Github className="absolute left-3 top-2.5 text-zinc-600" size={14} />
+                                    <input
+                                        name="repoUrl" required
+                                        value={formData.repoUrl} onChange={handleUrlChange}
+                                        placeholder="https://github.com/username/repository"
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => setIsPickerOpen(!isPickerOpen)}
+                                    className={`px-3 py-2 rounded-lg border text-xs font-bold transition-all whitespace-nowrap ${isPickerOpen ? 'bg-zinc-800 text-white border-zinc-700' : 'bg-white/5 text-zinc-400 border-white/10 hover:bg-white/10 hover:text-white'}`}
+                                >
+                                    {isPickerOpen ? "Cancel" : (isConnected ? "Change Repo" : "Browse GitHub")}
+                                </button>
+                            </div>
+
+                            {/* Integrated Picker UI */}
+                            {isPickerOpen && (
+                                <div className="mt-2 p-3 bg-blue-900/10 rounded-xl border border-blue-500/20 animate-in fade-in slide-in-from-top-2 duration-200">
+                                    {!isConnected ? (
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <h5 className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Connect GitHub</h5>
+                                                <a
+                                                    href="https://github.com/settings/tokens/new?scopes=repo&description=NexusVPS"
+                                                    target="_blank"
+                                                    className="text-[10px] text-zinc-500 hover:text-blue-400 underline decoration-dotted"
+                                                >
+                                                    Generate Token (Scope: repo)
+                                                </a>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="password"
+                                                    value={githubToken}
+                                                    onChange={(e) => setGithubToken(e.target.value)}
+                                                    placeholder="Paste Personal Access Token (ghp_...)"
+                                                    className="flex-grow bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50"
+                                                />
+                                                <button
+                                                    onClick={handleConnect}
+                                                    disabled={isConnecting || !githubToken}
+                                                    className="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-500 transition-colors disabled:opacity-50"
+                                                >
+                                                    {isConnecting ? <Loader2 className="animate-spin" size={14} /> : "Connect"}
+                                                </button>
+                                            </div>
+                                            <p className="text-[10px] text-zinc-500">
+                                                We use this token to list your repositories and clone private projects. It is only used for this session deployment.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <input
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                placeholder="Type to filter repositories..."
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500/50"
+                                                autoFocus
+                                            />
+                                            <div className="max-h-[140px] overflow-y-auto custom-scrollbar space-y-1 relative">
+                                                {filteredRepos.map(repo => (
+                                                    <div
+                                                        key={repo.id}
+                                                        onClick={() => handleSelectRepo(repo)}
+                                                        className={`p-2 rounded-lg cursor-pointer flex items-center justify-between transition-colors ${formData.repoUrl === repo.html_url ? 'bg-blue-600/20 border border-blue-500/50' : 'hover:bg-white/5 border border-transparent hover:border-white/5'}`}
+                                                    >
+                                                        <div className="flex items-center gap-2 overflow-hidden">
+                                                            {repo.private ? <ShieldAlert size={10} className="text-yellow-500 shrink-0" /> : <Globe size={10} className="text-zinc-500 shrink-0" />}
+                                                            <span className="text-xs text-zinc-200 truncate">{repo.full_name}</span>
+                                                        </div>
+                                                        <div className="text-[9px] text-zinc-500 shrink-0">{repo.language}</div>
+                                                    </div>
+                                                ))}
+                                                {filteredRepos.length === 0 && <div className="text-center text-[10px] text-zinc-600 py-4">No repositories found matching "{searchTerm}"</div>}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-2 relative">
                             <label className="text-xs text-zinc-400">Branch</label>
-                            <input
-                                name="branch"
-                                value={formData.branch} onChange={handleChange}
-                                placeholder="main"
-                                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
-                            />
+                            {isLoadingBranches ? (
+                                <div className="flex items-center gap-2 px-3 py-2 bg-black/40 border border-white/10 rounded-lg">
+                                    <Loader2 className="animate-spin text-zinc-500" size={14} />
+                                    <span className="text-xs text-zinc-500">Fetching branches...</span>
+                                </div>
+                            ) : (branches.length > 0 && isConnected) ? (
+                                <select
+                                    name="branch"
+                                    value={formData.branch} onChange={handleChange}
+                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none"
+                                >
+                                    {branches.map((b: any) => (
+                                        <option key={b.name} value={b.name}>{b.name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input
+                                    name="branch"
+                                    value={formData.branch} onChange={handleChange}
+                                    placeholder="main"
+                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
+                                />
+                            )}
                         </div>
                     </div>
                 </div>
