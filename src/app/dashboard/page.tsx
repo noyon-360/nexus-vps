@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { testVpsConnection, saveVps, getVpsList, deleteVps, updateVps } from "@/app/actions/vps";
-import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest, updateCredentialRequestConfig, getCredentialPresets, saveCredentialPreset, updateCredentialPreset, deleteCredentialPreset } from "@/app/actions/credentials";
+import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest, updateCredentialRequestConfig, getCredentialPresets, saveCredentialPreset, updateCredentialPreset, deleteCredentialPreset, acceptCredentialRequest } from "@/app/actions/credentials";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect } from "react";
 
@@ -38,6 +38,13 @@ export default function Dashboard() {
         config: [] as any[],
     });
 
+    // Search & Pagination State
+    const [searchQuery, setSearchQuery] = useState("");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalRequests, setTotalRequests] = useState(0);
+    const [pageSize] = useState(10);
+
     // Preset Management State
     const [isPresetDialogOpen, setIsPresetDialogOpen] = useState(false);
     const [isEditingPreset, setIsEditingPreset] = useState(false);
@@ -69,19 +76,21 @@ export default function Dashboard() {
         }
     };
 
-    const fetchRequestsList = async () => {
+    const fetchRequestsList = useCallback(async (page: number = currentPage, search: string = searchQuery) => {
         setIsLoadingList(true);
         try {
-            const result = await getAllCredentialRequests();
+            const result = await getAllCredentialRequests(search, page, pageSize);
             if (result.success) {
                 setRequestsList(result.requests || []);
+                setTotalPages(result.totalPages || 1);
+                setTotalRequests(result.total || 0);
             }
         } catch (error) {
             console.error("Failed to fetch requests list:", error);
         } finally {
             setIsLoadingList(false);
         }
-    };
+    }, [currentPage, searchQuery, pageSize]);
 
     const handleCreateRequest = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -115,17 +124,67 @@ export default function Dashboard() {
         }
     };
 
+    const handleAcceptRequest = async (id: string) => {
+        if (!confirm("Are you sure you want to mark this request as ACCEPTED?")) return;
+        try {
+            const result = await acceptCredentialRequest(id);
+            if (result.success) {
+                setIsViewDrawerOpen(false);
+                fetchRequestsList();
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error("Accept request error:", error);
+        }
+    };
+
+    const getRequestProgress = (req: any) => {
+        if (!req.config || !Array.isArray(req.config)) return { completed: 0, total: 0, percent: 0 };
+        const data = req.data || {};
+        const config = req.config as any[];
+        let completed = 0;
+
+        config.forEach(section => {
+            const sectionData = data[section.id] || {};
+            const isComplete = section.fields.length > 0 && section.fields.every((f: any) => {
+                if (!f.required) return true;
+                const val = sectionData[f.id];
+                return val && (Array.isArray(val) ? val.length > 0 : val.toString().trim() !== "");
+            });
+            if (isComplete) completed++;
+        });
+
+        return {
+            completed,
+            total: config.length,
+            percent: Math.round((completed / config.length) * 100)
+        };
+    };
+
 
     useEffect(() => {
         if (session) {
             if (activeTab === "Client VPS") fetchVpsList();
-            if (activeTab === "Client Onboarding") {
-                fetchRequestsList();
-                fetchPresets();
-            }
-            if (activeTab === "Presets") {
-                fetchPresets();
-            }
+            if (activeTab === "Presets") fetchPresets();
+        }
+    }, [session, activeTab]);
+
+    // Separate effect for Client Onboarding with search and pagination
+    useEffect(() => {
+        if (session && activeTab === "Client Onboarding") {
+            const delayDebounceFn = setTimeout(() => {
+                fetchRequestsList(currentPage, searchQuery);
+            }, 500);
+
+            return () => clearTimeout(delayDebounceFn);
+        }
+    }, [session, activeTab, searchQuery, currentPage, fetchRequestsList]);
+
+    // Extra effect to fetch presets when onboarding tab is active
+    useEffect(() => {
+        if (session && activeTab === "Client Onboarding") {
+            fetchPresets();
         }
     }, [session, activeTab]);
 
@@ -502,86 +561,176 @@ export default function Dashboard() {
                             </div>
                         )
                     ) : activeTab === "Client Onboarding" ? (
-                        isLoadingList ? (
-                            <div className="flex items-center justify-center h-full">
-                                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-primary"></div>
+                        <div className="flex flex-col h-full">
+                            {/* Search Header */}
+                            <div className="mb-6 flex items-center justify-between gap-4">
+                                <div className="relative flex-grow max-w-md">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-zinc-500">
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Search clients by name..."
+                                        value={searchQuery}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            setCurrentPage(1); // Reset to first page on search
+                                        }}
+                                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm text-white focus:border-brand-primary/50 focus:outline-none transition-all"
+                                    />
+                                </div>
+                                {totalRequests > 0 && (
+                                    <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
+                                        {totalRequests} Total Requests
+                                    </div>
+                                )}
                             </div>
-                        ) : requestsList.length > 0 ? (
-                            <div className="space-y-4">
-                                {requestsList.map((req) => (
-                                    <div key={req.id} className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6 flex items-center justify-between hover:border-brand-primary/20 transition-all group">
-                                        <div className="flex items-center gap-6">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${req.status === 'SUBMITTED' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-brand-primary/10 text-brand-primary border border-brand-primary/20'}`}>
-                                                {req.clientName.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <h4 className="text-lg font-bold text-white mb-1 group-hover:text-brand-primary transition-colors">{req.clientName}</h4>
-                                                <div className="flex items-center gap-3 text-xs text-zinc-500 font-mono">
-                                                    <span className={`px-2 py-0.5 rounded-full ${req.status === 'SUBMITTED' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
-                                                        {req.status}
-                                                    </span>
-                                                    <span>{new Date(req.createdAt).toLocaleDateString()}</span>
+
+                            {isLoadingList ? (
+                                <div className="flex items-center justify-center flex-grow py-20">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-primary"></div>
+                                </div>
+                            ) : requestsList.length > 0 ? (
+                                <div className="space-y-4">
+                                    {requestsList.map((req) => (
+                                        <div key={req.id} className="bg-[#0a0a0a] border border-white/5 rounded-2xl p-6 flex items-center justify-between hover:border-brand-primary/20 transition-all group">
+                                            <div className="flex items-center gap-6">
+                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${req.status === 'SUBMITTED' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-brand-primary/10 text-brand-primary border border-brand-primary/20'}`}>
+                                                    {req.clientName.charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-brand-primary transition-colors">{req.clientName}</h4>
+                                                    <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-mono">
+                                                        <span className={`px-2 py-0.5 rounded-full ${req.status === 'ACCEPTED' ? 'bg-green-500 text-black' : (req.status === 'SUBMITTED' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500')}`}>
+                                                            {req.status}
+                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-16 h-1 bg-white/5 rounded-full overflow-hidden">
+                                                                <div
+                                                                    className={`h-full transition-all rounded-full ${getRequestProgress(req).percent === 100 ? 'bg-green-500' : 'bg-brand-primary'}`}
+                                                                    style={{ width: `${getRequestProgress(req).percent}%` }}
+                                                                ></div>
+                                                            </div>
+                                                            <span className={getRequestProgress(req).percent === 100 ? 'text-green-500' : 'text-brand-primary'}>
+                                                                {getRequestProgress(req).completed}/{getRequestProgress(req).total}
+                                                            </span>
+                                                        </div>
+                                                        <span>{new Date(req.createdAt).toLocaleDateString()}</span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex bg-white/5 rounded-lg border border-white/5 pr-2 overflow-hidden max-w-[200px] md:max-w-md">
-                                                <div className="px-3 py-2 bg-white/5 border-r border-white/5 text-xs font-bold text-zinc-500">LINK</div>
-                                                <input
-                                                    readOnly
-                                                    value={`${window.location.origin}/collect/${req.slug}`}
-                                                    className="bg-transparent px-3 text-xs text-zinc-400 focus:outline-none w-full font-mono truncate"
-                                                    onClick={(e) => e.currentTarget.select()}
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    navigator.clipboard.writeText(`${window.location.origin}/collect/${req.slug}`);
-                                                    alert("Link copied to clipboard!");
-                                                }}
-                                                className="p-2 rounded-lg bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                                                title="Copy Link"
-                                            >
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                                </svg>
-                                            </button>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex bg-white/5 rounded-lg border border-white/5 pr-2 overflow-hidden max-w-[200px] md:max-w-md">
+                                                    <div className="px-3 py-2 bg-white/5 border-r border-white/5 text-xs font-bold text-zinc-500">LINK</div>
+                                                    <input
+                                                        readOnly
+                                                        value={`${window.location.origin}/collect/${req.slug}`}
+                                                        className="bg-transparent px-3 text-xs text-zinc-400 focus:outline-none w-full font-mono truncate"
+                                                        onClick={(e) => e.currentTarget.select()}
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(`${window.location.origin}/collect/${req.slug}`);
+                                                        alert("Link copied to clipboard!");
+                                                    }}
+                                                    className="p-2 rounded-lg bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
+                                                    title="Copy Link"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                    </svg>
+                                                </button>
 
-                                            {req.status === 'SUBMITTED' && (
                                                 <button
                                                     onClick={() => { setSelectedRequest(req); setIsViewDrawerOpen(true); }}
                                                     className="px-4 py-2 rounded-lg bg-brand-primary/10 text-brand-primary hover:bg-brand-primary hover:text-black font-bold text-xs tracking-wider transition-all"
                                                 >
-                                                    VIEW DATA
+                                                    {req.status === 'ACCEPTED' ? 'VIEW DETAILS' : 'VIEW DATA'}
                                                 </button>
-                                            )}
 
+                                                <button
+                                                    onClick={() => handleDeleteRequest(req.id)}
+                                                    className="p-2 rounded-lg bg-white/5 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 transition-all"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* Pagination Controls */}
+                                    {totalPages > 1 && (
+                                        <div className="flex items-center justify-center gap-4 mt-8 py-4 border-t border-white/5">
                                             <button
-                                                onClick={() => handleDeleteRequest(req.id)}
-                                                className="p-2 rounded-lg bg-white/5 text-zinc-500 hover:text-red-500 hover:bg-red-500/10 transition-all"
+                                                disabled={currentPage === 1 || isLoadingList}
+                                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                                className="px-4 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30 disabled:pointer-events-none"
                                             >
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
+                                                PREVIOUS
+                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => {
+                                                    if (totalPages > 5 && Math.abs(p - currentPage) > 2 && p !== 1 && p !== totalPages) {
+                                                        if (Math.abs(p - currentPage) === 3) return <span key={p} className="text-zinc-600">...</span>;
+                                                        return null;
+                                                    }
+                                                    return (
+                                                        <button
+                                                            key={p}
+                                                            onClick={() => setCurrentPage(p)}
+                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${currentPage === p ? 'bg-brand-primary text-black' : 'bg-white/5 text-zinc-500 hover:text-white hover:bg-white/10'}`}
+                                                        >
+                                                            {p}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                            <button
+                                                disabled={currentPage === totalPages || isLoadingList}
+                                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                                className="px-4 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-30 disabled:pointer-events-none"
+                                            >
+                                                NEXT
                                             </button>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-center max-w-sm mx-auto">
-                                <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-white/10 to-transparent border border-white/10 flex items-center justify-center text-zinc-600 mb-8">
-                                    <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
+                                    )}
                                 </div>
-                                <h3 className="text-xl font-bold text-white mb-3">No Requests Found</h3>
-                                <p className="text-zinc-500 leading-relaxed">
-                                    Create a new onboarding request to collect credentials from your clients.
-                                </p>
-                            </div>
-                        )
+                            ) : searchQuery ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center flex-grow">
+                                    <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-zinc-600 mb-4 mx-auto">
+                                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-white font-bold mb-1">No results matching &quot;{searchQuery}&quot;</h3>
+                                    <p className="text-sm text-zinc-500">Try a different search term or clear the filter.</p>
+                                    <button
+                                        onClick={() => setSearchQuery("")}
+                                        className="mt-4 text-xs font-bold text-brand-primary hover:text-white transition-colors"
+                                    >
+                                        CLEAR SEARCH
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center flex-grow py-20 text-center max-w-sm mx-auto">
+                                    <div className="w-24 h-24 rounded-[2rem] bg-gradient-to-br from-white/10 to-transparent border border-white/10 flex items-center justify-center text-zinc-600 mb-8 mx-auto">
+                                        <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-white mb-3">No Requests Found</h3>
+                                    <p className="text-zinc-500 leading-relaxed">
+                                        Create a new onboarding request to collect credentials from your clients.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                     ) : activeTab === "Presets" ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                             {myPresets.map((preset) => (
@@ -1567,51 +1716,91 @@ export default function Dashboard() {
                                         </div>
                                     </div>
                                 ) : (
-                                    selectedRequest.data ? (
-                                        Object.entries(selectedRequest.data).map(([sectionId, fields]: [string, any]) => {
-                                            // Try to find section config
-                                            const sectionConfig = Array.isArray(selectedRequest.config)
-                                                ? selectedRequest.config.find((s: any) => s.id === sectionId)
-                                                : null; // Handle backward compatibility or missing config
-
-                                            // Fallback for Title if using old format or ID not found
-                                            const sectionTitle = sectionConfig?.title || sectionId;
-
-                                            return (
-                                                <div key={sectionId} className="bg-white/5 rounded-2xl p-6 border border-white/5">
-                                                    <h4 className="text-lg font-bold text-brand-primary uppercase mb-6 pb-2 border-b border-white/10">{sectionTitle}</h4>
-                                                    <div className="grid grid-cols-1 gap-6">
-                                                        {Object.entries(fields).map(([fieldId, value]) => {
-                                                            // Resolve Field Label
-                                                            const fieldConfig = sectionConfig?.fields.find((f: any) => f.id === fieldId);
-                                                            const fieldLabel = fieldConfig?.label || fieldId;
-
-                                                            return (
-                                                                <div key={fieldId}>
-                                                                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">{fieldLabel}</label>
-                                                                    {Array.isArray(value) ? (
-                                                                        <div className="grid grid-cols-2 gap-4">
-                                                                            {value.map((item: any, idx: number) => (
-                                                                                typeof item === 'string' && item.startsWith('data:image') ?
-                                                                                    <img key={idx} src={item} alt="Screenshot" className="rounded-lg border border-white/10 w-full" /> :
-                                                                                    <div key={idx} className="p-3 rounded bg-black/20 text-sm font-mono text-zinc-300">{item}</div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-sm font-mono text-zinc-200 break-all select-all">
-                                                                            {String(value)}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
+                                    <div className="space-y-6 mb-8">
+                                        <div className="flex items-center justify-between bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
+                                            <div>
+                                                <h4 className="text-xl font-bold text-white uppercase tracking-tight">{selectedRequest.clientName}</h4>
+                                                <p className="text-xs text-zinc-500 font-mono mt-1">ID: {selectedRequest.id}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="flex items-center gap-3 mb-2">
+                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase ${selectedRequest.status === 'ACCEPTED' ? 'bg-green-500 text-black' : (selectedRequest.status === 'SUBMITTED' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20')}`}>
+                                                        {selectedRequest.status}
+                                                    </span>
+                                                    <span className="text-xs font-black text-white">
+                                                        {getRequestProgress(selectedRequest).completed}/{getRequestProgress(selectedRequest).total} Sections
+                                                    </span>
                                                 </div>
-                                            );
-                                        })
-                                    ) : (
-                                        <div className="text-center text-zinc-500 py-20">No data submitted yet.</div>
-                                    )
+                                                <div className="w-40 h-1.5 bg-white/5 rounded-full overflow-hidden ml-auto">
+                                                    <div
+                                                        className={`h-full transition-all duration-1000 ${getRequestProgress(selectedRequest).percent === 100 ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-brand-primary'}`}
+                                                        style={{ width: `${getRequestProgress(selectedRequest).percent}%` }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {selectedRequest.status !== 'ACCEPTED' && (
+                                            <div className="bg-brand-primary/5 border border-brand-primary/10 rounded-2xl p-6 flex items-center justify-between">
+                                                <div>
+                                                    <h5 className="text-sm font-bold text-white mb-1">Finalize Submission?</h5>
+                                                    <p className="text-[10px] text-zinc-500 uppercase tracking-widest">Mark as accepted once all data is verified</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleAcceptRequest(selectedRequest.id)}
+                                                    className="px-6 py-3 rounded-xl bg-brand-primary text-black text-xs font-black tracking-widest uppercase hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-brand-primary/20"
+                                                >
+                                                    CONFIRM & ACCEPT
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {selectedRequest.data ? (
+                                    Object.entries(selectedRequest.data).map(([sectionId, fields]: [string, any]) => {
+                                        // Try to find section config
+                                        const sectionConfig = Array.isArray(selectedRequest.config)
+                                            ? selectedRequest.config.find((s: any) => s.id === sectionId)
+                                            : null; // Handle backward compatibility or missing config
+
+                                        // Fallback for Title if using old format or ID not found
+                                        const sectionTitle = sectionConfig?.title || sectionId;
+
+                                        return (
+                                            <div key={sectionId} className="bg-white/5 rounded-2xl p-6 border border-white/5">
+                                                <h4 className="text-lg font-bold text-brand-primary uppercase mb-6 pb-2 border-b border-white/10">{sectionTitle}</h4>
+                                                <div className="grid grid-cols-1 gap-6">
+                                                    {Object.entries(fields).map(([fieldId, value]) => {
+                                                        // Resolve Field Label
+                                                        const fieldConfig = sectionConfig?.fields.find((f: any) => f.id === fieldId);
+                                                        const fieldLabel = fieldConfig?.label || fieldId;
+
+                                                        return (
+                                                            <div key={fieldId}>
+                                                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">{fieldLabel}</label>
+                                                                {Array.isArray(value) ? (
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        {value.map((item: any, idx: number) => (
+                                                                            typeof item === 'string' && item.startsWith('data:image') ?
+                                                                                <img key={idx} src={item} alt="Screenshot" className="rounded-lg border border-white/10 w-full" /> :
+                                                                                <div key={idx} className="p-3 rounded bg-black/20 text-sm font-mono text-zinc-300">{item}</div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-sm font-mono text-zinc-200 break-all select-all">
+                                                                        {String(value)}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="text-center text-zinc-500 py-20">No data submitted yet.</div>
                                 )}
                             </div>
                         </div>

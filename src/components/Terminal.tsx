@@ -14,11 +14,22 @@ interface TerminalComponentProps {
 const TerminalComponent: React.FC<TerminalComponentProps> = ({ host, user, encodedPass }) => {
     const [isConnected, setIsConnected] = React.useState(false);
     const [isReady, setIsReady] = React.useState(false);
+    const [isInitialized, setIsInitialized] = React.useState(false);
     const [retryCount, setRetryCount] = React.useState(0);
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const esRef = useRef<EventSource | null>(null);
+
+    const handleDisconnect = () => {
+        setIsConnected(false);
+        setIsReady(false); // Reset to show button
+        if (esRef.current) {
+            esRef.current.close();
+            esRef.current = null;
+        }
+    };
+
 
     // 1. Initialize Xterm.js (Run once)
     useEffect(() => {
@@ -58,6 +69,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ host, user, encod
 
         xtermRef.current = term;
         fitAddonRef.current = fitAddon;
+        setIsInitialized(true);
 
         // Welcome message
         term.write('\x1b[2mTerminal ready. Click "Connect" to start session.\x1b[0m\r\n');
@@ -150,15 +162,6 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ host, user, encod
         };
     }, [isReady, retryCount, host, user, encodedPass]);
 
-    const handleDisconnect = () => {
-        setIsConnected(false);
-        setIsReady(false); // Reset to show button
-        if (esRef.current) {
-            esRef.current.close();
-            esRef.current = null;
-        }
-    };
-
     const handleConnect = () => {
         setRetryCount(c => c + 1);
         setIsReady(true);
@@ -175,7 +178,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ host, user, encod
                         className="group relative px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-mono text-sm rounded-xl border border-white/10 backdrop-blur-md shadow-2xl transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
                     >
                         <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)] group-hover:bg-green-500 group-hover:shadow-[0_0_8px_rgba(34,197,94,0.5)] transition-all"></div>
-                        <span>{xtermRef.current ? "Connect Terminal" : "Initialize Terminal"}</span>
+                        <span>{isInitialized ? "Connect Terminal" : "Initialize Terminal"}</span>
                     </button>
                 </div>
             )}

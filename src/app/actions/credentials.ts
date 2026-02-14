@@ -64,18 +64,41 @@ export async function createCredentialRequest(clientName: string, config: Creden
     }
 }
 
-// Admin Action: Get all requests
-export async function getAllCredentialRequests() {
+// Admin Action: Get all requests with search and pagination
+export async function getAllCredentialRequests(search?: string, page: number = 1, pageSize: number = 10) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
         return { success: false, message: "Unauthorized" };
     }
 
     try {
-        const requests = await prisma.credentialRequest.findMany({
-            orderBy: { createdAt: "desc" },
-        });
-        return { success: true, requests };
+        const skip = (page - 1) * pageSize;
+
+        const where: any = {};
+        if (search) {
+            where.clientName = {
+                contains: search,
+                mode: 'insensitive', // Case-insensitive search
+            };
+        }
+
+        const [requests, total] = await Promise.all([
+            prisma.credentialRequest.findMany({
+                where,
+                skip,
+                take: pageSize,
+                orderBy: { createdAt: "desc" },
+            }),
+            prisma.credentialRequest.count({ where }),
+        ]);
+
+        return {
+            success: true,
+            requests,
+            total,
+            totalPages: Math.ceil(total / pageSize),
+            currentPage: page
+        };
     } catch (error: any) {
         console.error("Failed to fetch credential requests:", error);
         return { success: false, message: error.message };
@@ -129,7 +152,7 @@ export async function getCredentialRequestBySlug(slug: string) {
 }
 
 // Public Action (Client View): Submit data
-export async function submitCredentialData(slug: string, data: CredentialRequestData) {
+export async function submitCredentialData(slug: string, data: CredentialRequestData, status?: string) {
     try {
         const request = await prisma.credentialRequest.findUnique({
             where: { slug },
@@ -139,17 +162,45 @@ export async function submitCredentialData(slug: string, data: CredentialRequest
             return { success: false, message: "Request not found" };
         }
 
+        const existingData = (request.data as any) || {};
+        const newData = { ...existingData, ...data };
+
+        // Determine if fully submitted or partially saved
+        // If the client explicitly clicks "Submit Securely", status becomes "SUBMITTED"
+        // If they click "Save Section", we keep status "PENDING" but update data
+
         await prisma.credentialRequest.update({
             where: { slug },
             data: {
-                data: data as any,
-                status: "SUBMITTED",
+                data: newData as any,
+                status: status || request.status,
             },
         });
 
         return { success: true };
     } catch (error: any) {
         console.error("Failed to submit credential data:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Admin Action: Accept a request
+export async function acceptCredentialRequest(id: string) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        await prisma.credentialRequest.update({
+            where: { id },
+            data: {
+                status: "ACCEPTED",
+            },
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Failed to accept credential request:", error);
         return { success: false, message: error.message };
     }
 }

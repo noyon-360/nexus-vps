@@ -21,6 +21,8 @@ export default function CollectCredentialsPage() {
     const [formData, setFormData] = useState<any>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [sectionSaving, setSectionSaving] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchRequest = async () => {
@@ -28,13 +30,15 @@ export default function CollectCredentialsPage() {
                 const result = await getCredentialRequestBySlug(slug);
                 if (result.success && result.request) {
                     setRequest(result.request);
-                    // Initialize form data structure based on config
-                    const initialData: any = {};
+                    // Initialize form data from existing data or config
+                    const savedData = result.request.data as any || {};
+                    const initialData: any = { ...savedData };
+
                     const config = result.request.config as Record<string, any>;
-                    if (config) {
-                        Object.keys(config).forEach(key => {
-                            if (config[key]) {
-                                initialData[key] = {};
+                    if (Array.isArray(config)) {
+                        config.forEach((section: any) => {
+                            if (!initialData[section.id]) {
+                                initialData[section.id] = {};
                             }
                         });
                     }
@@ -111,7 +115,7 @@ export default function CollectCredentialsPage() {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const result = await submitCredentialData(slug, formData);
+            const result = await submitCredentialData(slug, formData, "SUBMITTED");
             if (result.success) {
                 setIsSubmitted(true);
             } else {
@@ -123,6 +127,49 @@ export default function CollectCredentialsPage() {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleSaveSection = async (sectionId: string) => {
+        setSectionSaving(sectionId);
+        try {
+            // Only send this section's data to the backend
+            const sectionData = { [sectionId]: formData[sectionId] };
+            const result = await submitCredentialData(slug, sectionData);
+            if (result.success) {
+                setSuccessMessage(`Section saved successfully!`);
+                setTimeout(() => setSuccessMessage(null), 3000);
+            } else {
+                alert(result.message || "Failed to save section.");
+            }
+        } catch (err) {
+            console.error(err);
+            alert("An error occurred while saving.");
+        } finally {
+            setSectionSaving(null);
+        }
+    };
+
+    const calculateProgress = () => {
+        if (!request || !request.config) return { completed: 0, total: 0, percent: 0 };
+        const sections = request.config as any[];
+        let completedCount = 0;
+
+        sections.forEach(section => {
+            const sectionData = formData[section.id] || {};
+            // A section is complete if all required fields are filled
+            const isComplete = section.fields.length > 0 && section.fields.every((field: any) => {
+                if (!field.required) return true;
+                const value = sectionData[field.id];
+                return value && (Array.isArray(value) ? value.length > 0 : value.toString().trim() !== "");
+            });
+            if (isComplete) completedCount++;
+        });
+
+        return {
+            completed: completedCount,
+            total: sections.length,
+            percent: Math.round((completedCount / sections.length) * 100)
+        };
     };
 
     if (isLoading) {
@@ -217,6 +264,7 @@ export default function CollectCredentialsPage() {
             return (
                 <textarea
                     required={field.required}
+                    value={formData[sectionId]?.[field.id] || ""}
                     placeholder={field.placeholder}
                     className={`${commonClasses} h-32 font-mono`}
                     onChange={(e) => handleInputChange(sectionId, field.id, e.target.value)}
@@ -251,6 +299,7 @@ export default function CollectCredentialsPage() {
             <input
                 type={field.type === 'password' ? 'password' : 'text'}
                 required={field.required}
+                value={formData[sectionId]?.[field.id] || ""}
                 placeholder={field.placeholder}
                 className={commonClasses}
                 onChange={(e) => handleInputChange(sectionId, field.id, e.target.value)}
@@ -276,10 +325,44 @@ export default function CollectCredentialsPage() {
                     <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter mb-4">
                         Credential Collection
                     </h1>
-                    <p className="text-zinc-500 text-lg max-w-xl mx-auto">
+                    <p className="text-zinc-500 text-lg max-w-xl mx-auto mb-8">
                         Please provide the requested credentials for <b>{request.clientName}</b> below. Data is encrypted and secure.
                     </p>
+
+                    {/* Progress Area */}
+                    <div className="max-w-md mx-auto bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm relative overflow-hidden">
+                        {calculateProgress().percent === 100 && (
+                            <div className="absolute inset-0 bg-green-500/10 animate-pulse pointer-events-none"></div>
+                        )}
+                        <div className="flex items-center justify-between mb-4 relative z-10">
+                            <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Overall Progress</span>
+                            <span className={`text-sm font-black ${calculateProgress().percent === 100 ? 'text-green-500' : 'text-brand-primary'}`}>
+                                {calculateProgress().completed}/{calculateProgress().total} Sections
+                            </span>
+                        </div>
+                        <div className="h-3 bg-white/5 rounded-full overflow-hidden relative z-10">
+                            <div
+                                className={`h-full transition-all duration-700 ease-out rounded-full ${calculateProgress().percent === 100 ? 'bg-green-500 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : 'bg-brand-primary'}`}
+                                style={{ width: `${calculateProgress().percent}%` }}
+                            ></div>
+                        </div>
+                        {calculateProgress().percent === 100 && (
+                            <div className="mt-4 text-green-500 text-xs font-bold animate-bounce flex items-center justify-center gap-2">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                All sections ready! Click submit below.
+                            </div>
+                        )}
+                    </div>
                 </div>
+
+                {successMessage && (
+                    <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4">
+                        <div className="bg-green-500 text-black px-6 py-3 rounded-full font-bold text-sm shadow-2xl flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                            {successMessage}
+                        </div>
+                    </div>
+                )}
 
                 <form onSubmit={handleSubmit} className="space-y-12">
                     {/* Dynamic Sections */}
@@ -315,6 +398,19 @@ export default function CollectCredentialsPage() {
                                             ))}
                                         </div>
                                     )}
+                                    <button
+                                        type="button"
+                                        disabled={sectionSaving === section.id}
+                                        onClick={() => handleSaveSection(section.id)}
+                                        className="px-4 py-2 rounded-xl bg-brand-primary/10 border border-brand-primary/20 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-all flex items-center gap-2 disabled:opacity-50"
+                                    >
+                                        {sectionSaving === section.id ? (
+                                            <div className="w-4 h-4 border-2 border-current border-t-transparent animate-spin rounded-full"></div>
+                                        ) : (
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                        )}
+                                        {sectionSaving === section.id ? "Saving..." : "Save Progress"}
+                                    </button>
                                 </div>
                                 <div className="space-y-6 relative z-10">
                                     {section.fields.map((field: any) => (
