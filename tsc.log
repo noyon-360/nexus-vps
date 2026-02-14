@@ -1,0 +1,7 @@
+src/app/collect/[slug]/page.tsx(33,25): error TS18048: 'result.request' is possibly 'undefined'.
+src/app/collect/[slug]/page.tsx(34,37): error TS18048: 'result.request' is possibly 'undefined'.
+src/app/collect/[slug]/page.tsx(35,33): error TS18048: 'result.request' is possibly 'undefined'.
+src/app/collect/[slug]/page.tsx(35,33): error TS18047: 'result.request.config' is possibly 'null'.
+src/app/collect/[slug]/page.tsx(35,33): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type 'string | number | boolean | JsonObject | JsonArray'.
+  No index signature with a parameter of type 'string' was found on type 'string | number | boolean | JsonObject | JsonArray'.
+src/app/collect/[slug]/page.tsx(43,25): error TS18048: 'result.request' is possibly 'undefined'.

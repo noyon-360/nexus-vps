@@ -15,7 +15,7 @@ const prismaClientSingleton = () => {
   return new PrismaClient({
     adapter,                                             // ← key in Prisma 7+
     // log: ['query', 'info', 'warn', 'error'],         // optional for debugging
-  });
+  }) as unknown as PrismaClient;
 };
 
 declare global {
