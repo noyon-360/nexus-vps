@@ -22,6 +22,19 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   vpsList       Vps[]
+  credentialPresets CredentialPreset[]
+}
+
+model CredentialPreset {
+  id        String   @id @default(cuid())
+  name      String
+  config    Json
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, name])
 }
 
 model VerificationToken {
@@ -74,3 +87,4 @@ model CredentialRequest {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+

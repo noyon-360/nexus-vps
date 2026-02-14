@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+// Forced refresh comment
+import { PrismaClient } from '@prisma/client';  // adjust relative path
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 
@@ -15,7 +16,7 @@ const prismaClientSingleton = () => {
   return new PrismaClient({
     adapter,                                             // ← key in Prisma 7+
     // log: ['query', 'info', 'warn', 'error'],         // optional for debugging
-  }) as unknown as PrismaClient;
+  });
 };
 
 declare global {
@@ -28,4 +29,4 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.prismaGlobal = prisma;
 }
 
-export default prisma;
+export default prisma; 

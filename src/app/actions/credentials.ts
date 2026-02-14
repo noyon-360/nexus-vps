@@ -1,6 +1,6 @@
 "use server";
 
-import prisma from "@/lib/prisma";
+import prisma from "@/lib/prisma"; // Forced refresh
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -173,3 +173,98 @@ export async function updateCredentialRequestConfig(id: string, config: Credenti
         return { success: false, message: error.message };
     }
 }
+
+// User Action: Save a preset
+export async function saveCredentialPreset(name: string, config: CredentialRequestConfig) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = session.user as any;
+        const preset = await prisma.credentialPreset.create({
+            data: {
+                name,
+                config: config as any,
+                userId: user.id,
+            },
+        });
+        return { success: true, preset };
+    } catch (error: any) {
+        // Unique constraint violation (P2002)
+        if (error.code === 'P2002') {
+            return { success: false, message: "A preset with this name already exists." };
+        }
+        console.error("Failed to save preset:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// User Action: Get presets
+export async function getCredentialPresets() {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = session.user as any;
+        const presets = await prisma.credentialPreset.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: "desc" },
+        });
+        return { success: true, presets };
+    } catch (error: any) {
+        console.error("Failed to fetch presets:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// User Action: Update preset
+export async function updateCredentialPreset(id: string, name: string, config: CredentialRequestConfig) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = session.user as any;
+        const preset = await prisma.credentialPreset.update({
+            where: { id, userId: user.id }, // Ensure ownership
+            data: {
+                name,
+                config: config as any,
+            },
+        });
+        return { success: true, preset };
+    } catch (error: any) {
+        // Unique constraint violation (P2002)
+        if (error.code === 'P2002') {
+            return { success: false, message: "A preset with this name already exists." };
+        }
+        console.error("Failed to update preset:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+
+// User Action: Delete preset
+export async function deleteCredentialPreset(id: string) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = session.user as any;
+        await prisma.credentialPreset.delete({
+            where: { id, userId: user.id }, // Ensure ownership
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Failed to delete preset:", error);
+        return { success: false, message: error.message };
+    }
+}
+

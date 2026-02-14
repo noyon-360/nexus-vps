@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { testVpsConnection, saveVps, getVpsList, deleteVps, updateVps } from "@/app/actions/vps";
-import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest, updateCredentialRequestConfig } from "@/app/actions/credentials";
+import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest, updateCredentialRequestConfig, getCredentialPresets, saveCredentialPreset, updateCredentialPreset, deleteCredentialPreset } from "@/app/actions/credentials";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect } from "react";
 
@@ -31,8 +31,19 @@ export default function Dashboard() {
     const [selectedRequest, setSelectedRequest] = useState<any>(null);
     const [isEditingConfig, setIsEditingConfig] = useState(false);
     const [editConfigData, setEditConfigData] = useState<any[]>([]);
+    const [myPresets, setMyPresets] = useState<any[]>([]);
+    const [isSavingPreset, setIsSavingPreset] = useState(false);
     const [newRequestData, setNewRequestData] = useState({
         clientName: "",
+        config: [] as any[],
+    });
+
+    // Preset Management State
+    const [isPresetDialogOpen, setIsPresetDialogOpen] = useState(false);
+    const [isEditingPreset, setIsEditingPreset] = useState(false);
+    const [targetPresetId, setTargetPresetId] = useState<string | null>(null);
+    const [presetFormData, setPresetFormData] = useState({
+        name: "",
         config: [] as any[],
     });
 
@@ -108,9 +119,91 @@ export default function Dashboard() {
     useEffect(() => {
         if (session) {
             if (activeTab === "Client VPS") fetchVpsList();
-            if (activeTab === "Client Onboarding") fetchRequestsList();
+            if (activeTab === "Client Onboarding") {
+                fetchRequestsList();
+                fetchPresets();
+            }
+            if (activeTab === "Presets") {
+                fetchPresets();
+            }
         }
     }, [session, activeTab]);
+
+    const fetchPresets = async () => {
+        const result = await getCredentialPresets();
+        if (result.success) {
+            setMyPresets(result.presets || []);
+        }
+    };
+
+    const handleSavePreset = async (configOverride?: any[]) => {
+        const configToSave = configOverride || newRequestData.config;
+        if (!configToSave || configToSave.length === 0) {
+            alert("Configuration is empty.");
+            return;
+        }
+
+        const name = prompt("Enter a name for this preset:");
+        if (!name) return;
+
+        setIsSavingPreset(true);
+        const result = await saveCredentialPreset(name, configToSave);
+        setIsSavingPreset(false);
+
+        if (result.success) {
+            alert("Preset saved successfully!");
+            fetchPresets();
+        } else {
+            alert(result.message || "Failed to save preset.");
+        }
+    };
+
+    const handleCreateOrUpdatePreset = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsConnecting(true);
+        try {
+            let result;
+            if (isEditingPreset && targetPresetId) {
+                result = await updateCredentialPreset(targetPresetId, presetFormData.name, presetFormData.config);
+            } else {
+                result = await saveCredentialPreset(presetFormData.name, presetFormData.config);
+            }
+
+            if (result.success) {
+                setIsPresetDialogOpen(false);
+                setPresetFormData({ name: "", config: [] });
+                setIsEditingPreset(false);
+                setTargetPresetId(null);
+                fetchPresets();
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error("Preset action error:", error);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
+    const handleDeletePresetAction = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this preset?")) return;
+        try {
+            await deleteCredentialPreset(id);
+            fetchPresets();
+        } catch (error) {
+            console.error("Delete preset error:", error);
+        }
+    };
+
+    const openEditPresetDialog = (preset: any) => {
+        setIsEditingPreset(true);
+        setTargetPresetId(preset.id);
+        setPresetFormData({
+            name: preset.name,
+            config: Array.isArray(preset.config) ? preset.config : [],
+        });
+        setIsPresetDialogOpen(true);
+    };
 
     const handleConnect = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -224,7 +317,7 @@ export default function Dashboard() {
                 </div>
 
                 <nav className="space-y-3 flex-grow">
-                    {["Client VPS", "Client Onboarding", "Settings"].map((tab) => (
+                    {["Client VPS", "Client Onboarding", "Presets", "Settings"].map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -294,14 +387,30 @@ export default function Dashboard() {
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
                             </svg>
-                            NEW REQUEST
+                            CREATE LINK FOR CLIENT
+                        </button>
+                    )}
+
+                    {activeTab === "Presets" && (
+                        <button
+                            onClick={() => {
+                                setIsEditingPreset(false);
+                                setPresetFormData({ name: "", config: [] });
+                                setIsPresetDialogOpen(true);
+                            }}
+                            className="px-6 py-3 rounded-xl bg-brand-primary text-black text-sm font-extrabold transition-all duration-300 hover:scale-[1.02] active:scale-95 flex items-center gap-2.5 shadow-xl shadow-brand-primary/10"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
+                            </svg>
+                            NEW PRESET
                         </button>
                     )}
                 </header>
 
                 {/* Dynamic Section Content */}
                 <div className="flex-grow p-10 overflow-y-auto bg-black relative">
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-brand-primary/5 rounded-full blur-[120px] -z-10 translate-x-1/2 -translate-y-1/2"></div>
+                    <div className="absolute top-0 right-0 w-[5000px] h-[5000px] bg-brand-primary/5 rounded-full blur-[120px] -z-10 translate-x-1/2 -translate-y-1/2"></div>
 
                     {activeTab === "Client VPS" ? (
                         isLoadingList ? (
@@ -473,6 +582,67 @@ export default function Dashboard() {
                                 </p>
                             </div>
                         )
+                    ) : activeTab === "Presets" ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {myPresets.map((preset) => (
+                                <div
+                                    key={preset.id}
+                                    className="group bg-[#0a0a0a] border border-white/5 rounded-3xl p-8 hover:border-brand-primary/30 transition-all duration-500 relative overflow-hidden"
+                                >
+                                    <div className="flex items-start justify-between mb-6">
+                                        <div className="w-12 h-12 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center">
+                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={() => openEditPresetDialog(preset)}
+                                                className="p-2 rounded-lg bg-white/5 text-zinc-400 hover:text-white"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                </svg>
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeletePresetAction(preset.id)}
+                                                className="p-2 rounded-lg bg-white/5 text-zinc-400 hover:text-red-500"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <h4 className="text-lg font-bold text-white mb-2 group-hover:text-brand-primary transition-colors">{preset.name}</h4>
+                                    <p className="text-xs text-zinc-500 mb-6 font-medium">
+                                        {Array.isArray(preset.config) ? preset.config.length : 0} Sections • {Array.isArray(preset.config) ? preset.config.reduce((acc: number, s: any) => acc + (s.fields?.length || 0), 0) : 0} Fields
+                                    </p>
+                                    <button
+                                        onClick={() => openEditPresetDialog(preset)}
+                                        className="w-full py-3 rounded-xl bg-white/5 border border-white/10 text-white text-[10px] font-bold tracking-widest uppercase hover:bg-brand-primary hover:text-black hover:border-transparent transition-all"
+                                    >
+                                        EDIT PRESET
+                                    </button>
+                                </div>
+                            ))}
+
+                            <button
+                                onClick={() => {
+                                    setIsEditingPreset(false);
+                                    setPresetFormData({ name: "", config: [] });
+                                    setIsPresetDialogOpen(true);
+                                }}
+                                className="border-2 border-dashed border-white/5 rounded-3xl p-8 flex flex-col items-center justify-center text-center hover:border-brand-primary/20 hover:bg-white/[0.02] transition-all group min-h-[250px]"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-zinc-600 mb-4 group-hover:scale-110 group-hover:text-brand-primary transition-all">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                </div>
+                                <p className="text-sm font-bold text-zinc-500 group-hover:text-white transition-colors">Create New Preset</p>
+                            </button>
+                        </div>
                     ) : (
                         <div className="bg-white/5 border border-white/10 p-10 rounded-3xl h-full flex flex-col items-center justify-center text-center">
                             <h3 className="text-2xl font-bold text-white mb-4">System Settings</h3>
@@ -619,7 +789,159 @@ export default function Dashboard() {
                 )
             }
 
-            {/* Create Request Dialog */}
+            {/* Preset Dialog */}
+            {isPresetDialogOpen && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-end">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsPresetDialogOpen(false)}></div>
+                    <div className="w-full max-w-2xl bg-[#0a0a0a] border-l border-white/10 h-full relative z-10 flex flex-col animate-in slide-in-from-right duration-300">
+                        <div className="p-8 border-b border-white/10 flex items-center justify-between bg-black/40 backdrop-blur-md sticky top-0 z-20">
+                            <div>
+                                <h3 className="text-2xl font-black text-white">{isEditingPreset ? "Edit Preset" : "New Preset"}</h3>
+                                <p className="text-xs text-brand-primary uppercase tracking-[0.2em] font-bold mt-1">Configure Template</p>
+                            </div>
+                            <button onClick={() => setIsPresetDialogOpen(false)} className="w-10 h-10 rounded-xl bg-white/5 text-zinc-500 hover:text-white flex items-center justify-center transition-colors">
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleCreateOrUpdatePreset} className="flex-grow flex flex-col overflow-hidden">
+                            <div className="flex-grow overflow-y-auto p-8 space-y-8 scrollbar-hide">
+                                <div className="space-y-6">
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest pl-1">Preset Name</label>
+                                        <input
+                                            required
+                                            type="text"
+                                            value={presetFormData.name}
+                                            onChange={(e) => setPresetFormData({ ...presetFormData, name: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary transition-all text-sm font-bold shadow-inner"
+                                            placeholder="e.g. My Custom VPS Setup"
+                                        />
+                                    </div>
+
+                                    <div className="pt-4">
+                                        <div className="flex items-center justify-between mb-4 pl-1">
+                                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Configuration Builder</label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPresetFormData({
+                                                    ...presetFormData,
+                                                    config: [...presetFormData.config, { id: crypto.randomUUID(), title: 'New Section', fields: [] }]
+                                                })}
+                                                className="px-4 py-2 rounded-xl bg-brand-primary/10 text-brand-primary text-[10px] font-black tracking-widest uppercase hover:bg-brand-primary hover:text-black transition-all"
+                                            >
+                                                + Section
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-6">
+                                            {presetFormData.config.length === 0 && (
+                                                <div className="py-20 text-center border-2 border-dashed border-white/5 rounded-[2rem] text-zinc-600 text-sm bg-white/[0.01]">
+                                                    Add a section to start building your template.
+                                                </div>
+                                            )}
+
+                                            {presetFormData.config.map((section: any, sIdx: number) => (
+                                                <div key={section.id} className="bg-white/5 border border-white/5 rounded-[2rem] p-6 relative group transition-all hover:border-white/10">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newConfig = [...presetFormData.config];
+                                                            newConfig.splice(sIdx, 1);
+                                                            setPresetFormData({ ...presetFormData, config: newConfig });
+                                                        }}
+                                                        className="absolute top-4 right-4 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+
+                                                    <div className="space-y-4 mb-6">
+                                                        <input
+                                                            type="text"
+                                                            value={section.title}
+                                                            onChange={(e) => {
+                                                                const newConfig = [...presetFormData.config];
+                                                                newConfig[sIdx].title = e.target.value;
+                                                                setPresetFormData({ ...presetFormData, config: newConfig });
+                                                            }}
+                                                            className="bg-transparent border-b-2 border-white/5 w-full text-white font-black focus:outline-none focus:border-brand-primary text-lg pb-2 transition-colors"
+                                                            placeholder="Section Title"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-3 pl-4 border-l-2 border-brand-primary/20">
+                                                        {section.fields.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="flex items-center gap-3 bg-black/40 p-2 rounded-xl border border-white/5">
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.label}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...presetFormData.config];
+                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-transparent px-3 py-1.5 text-xs text-white focus:outline-none flex-grow font-bold"
+                                                                    placeholder="Field Label"
+                                                                />
+                                                                <select
+                                                                    value={field.type}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...presetFormData.config];
+                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-white/5 rounded-lg px-3 py-1.5 text-[10px] font-bold text-zinc-400 border border-white/10 focus:outline-none w-28 uppercase tracking-widest"
+                                                                >
+                                                                    <option value="text">TEXT</option>
+                                                                    <option value="password">PASSWORD</option>
+                                                                    <option value="longtext">LONG TEXT</option>
+                                                                    <option value="image">IMAGE</option>
+                                                                    <option value="file">FILE</option>
+                                                                </select>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const newConfig = [...presetFormData.config];
+                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                    }}
+                                                                    className="text-zinc-600 hover:text-red-500 p-1"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newConfig = [...presetFormData.config];
+                                                                newConfig[sIdx].fields.push({ id: crypto.randomUUID(), label: 'New Field', type: 'text', required: true });
+                                                                setPresetFormData({ ...presetFormData, config: newConfig });
+                                                            }}
+                                                            className="text-[10px] text-zinc-500 hover:text-brand-primary font-black uppercase tracking-[0.2em] mt-2 flex items-center gap-2 px-2 transition-colors"
+                                                        >
+                                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" /></svg>
+                                                            Add Field
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="p-8 border-t border-white/10 bg-black/40 backdrop-blur-md">
+                                <button type="submit" disabled={isConnecting} className="w-full py-5 rounded-2xl bg-brand-primary text-black font-black text-xs tracking-[0.3em] uppercase hover:bg-white transition-all shadow-xl shadow-brand-primary/10 disabled:opacity-50 active:scale-95">
+                                    {isConnecting ? "PROCESSING..." : (isEditingPreset ? "UPDATE PRESET" : "CREATE PRESET")}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Request Creation Dialog */}
             {
                 isRequestDialogOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/90 backdrop-blur-2xl transition-all duration-300">
@@ -657,66 +979,43 @@ export default function Dashboard() {
                                                 <select
                                                     className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-400 focus:outline-none"
                                                     onChange={(e) => {
-                                                        const presetName = e.target.value;
-                                                        if (!presetName) return;
+                                                        const presetId = e.target.value;
+                                                        if (!presetId) return;
+
                                                         let newConfig: any[] = [...newRequestData.config];
 
-                                                        if (presetName === 'vps') {
-                                                            newConfig.push({
+                                                        // Check user presets
+                                                        const userPreset = myPresets.find(p => p.id === presetId);
+                                                        if (userPreset && Array.isArray(userPreset.config)) {
+                                                            // Deep clone and regenerate IDs for fields/sections to avoid duplicates
+                                                            const clonedConfig = JSON.parse(JSON.stringify(userPreset.config)).map((s: any) => ({
+                                                                ...s,
                                                                 id: crypto.randomUUID(),
-                                                                title: 'VPS Access',
-                                                                description: 'Server credentials',
-                                                                fields: [
-                                                                    { id: crypto.randomUUID(), label: 'IP Address', type: 'text', required: true, placeholder: '192.168.1.1' },
-                                                                    { id: crypto.randomUUID(), label: 'Username', type: 'text', required: true, placeholder: 'root' },
-                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'SSH Key (Optional)', type: 'longtext', required: false, placeholder: 'ssh-rsa AAAA...' },
-                                                                ]
-                                                            });
-                                                        } else if (presetName === 'google') {
-                                                            newConfig.push({
-                                                                id: crypto.randomUUID(),
-                                                                title: 'Google Play Console',
-                                                                description: 'Developer account access',
-                                                                fields: [
-                                                                    { id: crypto.randomUUID(), label: 'Email', type: 'text', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'Service Account JSON', type: 'file', required: false },
-                                                                ]
-                                                            });
-                                                        } else if (presetName === 'apple') {
-                                                            newConfig.push({
-                                                                id: crypto.randomUUID(),
-                                                                title: 'Apple App Store',
-                                                                description: 'Developer account access',
-                                                                fields: [
-                                                                    { id: crypto.randomUUID(), label: 'Apple ID', type: 'text', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
-                                                                    { id: crypto.randomUUID(), label: '2FA Code / Note', type: 'text', required: false },
-                                                                ]
-                                                            });
-                                                        } else if (presetName === 'cloudinary') {
-                                                            newConfig.push({
-                                                                id: crypto.randomUUID(),
-                                                                title: 'Cloudinary',
-                                                                description: 'API Keys',
-                                                                fields: [
-                                                                    { id: crypto.randomUUID(), label: 'Cloud Name', type: 'text', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'API Key', type: 'text', required: true },
-                                                                    { id: crypto.randomUUID(), label: 'API Secret', type: 'password', required: true },
-                                                                ]
-                                                            });
+                                                                fields: (s.fields || []).map((f: any) => ({ ...f, id: crypto.randomUUID() }))
+                                                            }));
+                                                            newConfig = [...newConfig, ...clonedConfig];
                                                         }
+
                                                         setNewRequestData({ ...newRequestData, config: newConfig });
                                                         e.target.value = ""; // reset
                                                     }}
                                                 >
                                                     <option value="">+ Load Preset</option>
-                                                    <option value="vps">VPS Access</option>
-                                                    <option value="google">Google Play</option>
-                                                    <option value="apple">Apple Store</option>
-                                                    <option value="cloudinary">Cloudinary</option>
+                                                    {myPresets.map(p => (
+                                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                                    ))}
                                                 </select>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSavePreset()}
+                                                    disabled={newRequestData.config.length === 0 || isSavingPreset}
+                                                    className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                    title="Save current configuration as a preset"
+                                                >
+                                                    {isSavingPreset ? "Saving..." : "Save"}
+                                                </button>
+
                                                 <button
                                                     type="button"
                                                     onClick={() => setNewRequestData({
@@ -917,17 +1216,56 @@ export default function Dashboard() {
                                         {/* Reuse the builder UI logic here, mapped to editConfigData */}
                                         <div className="flex items-center justify-between mb-4">
                                             <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Form Configuration</h4>
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditConfigData([...editConfigData, {
-                                                    id: crypto.randomUUID(),
-                                                    title: 'New Section',
-                                                    fields: []
-                                                }])}
-                                                className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors"
-                                            >
-                                                + Section
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <select
+                                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-400 focus:outline-none"
+                                                    onChange={(e) => {
+                                                        const presetId = e.target.value;
+                                                        if (!presetId) return;
+
+                                                        let newConfig: any[] = [...editConfigData];
+
+                                                        const userPreset = myPresets.find(p => p.id === presetId);
+                                                        if (userPreset && Array.isArray(userPreset.config)) {
+                                                            const clonedConfig = JSON.parse(JSON.stringify(userPreset.config)).map((s: any) => ({
+                                                                ...s, id: crypto.randomUUID(),
+                                                                fields: (s.fields || []).map((f: any) => ({ ...f, id: crypto.randomUUID() }))
+                                                            }));
+                                                            newConfig = [...newConfig, ...clonedConfig];
+                                                        }
+
+                                                        setEditConfigData(newConfig);
+                                                        e.target.value = "";
+                                                    }}
+                                                >
+                                                    <option value="">+ Load Preset</option>
+                                                    {myPresets.map(p => (
+                                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                                    ))}
+                                                </select>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSavePreset(editConfigData)}
+                                                    disabled={editConfigData.length === 0 || isSavingPreset}
+                                                    className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors disabled:opacity-30"
+                                                    title="Save current configuration as a preset"
+                                                >
+                                                    {isSavingPreset ? "Saving..." : "Save"}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEditConfigData([...editConfigData, {
+                                                        id: crypto.randomUUID(),
+                                                        title: 'New Section',
+                                                        fields: []
+                                                    }])}
+                                                    className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors"
+                                                >
+                                                    + Section
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <div className="space-y-4">
