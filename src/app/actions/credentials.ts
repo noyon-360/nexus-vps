@@ -184,26 +184,78 @@ export async function submitCredentialData(slug: string, data: CredentialRequest
     }
 }
 
-// Admin Action: Accept a request
+// Admin Action: Accept a request and create Client record
 export async function acceptCredentialRequest(id: string) {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    if (!session?.user?.email) {
         return { success: false, message: "Unauthorized" };
     }
 
     try {
-        await prisma.credentialRequest.update({
-            where: { id },
-            data: {
-                status: "ACCEPTED",
-            },
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
         });
-        return { success: true };
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        // Get the credential request
+        const request = await prisma.credentialRequest.findUnique({
+            where: { id }
+        });
+
+        if (!request) {
+            return { success: false, message: "Request not found" };
+        }
+
+        if (request.status === "ACCEPTED") {
+            return { success: false, message: "Request already accepted" };
+        }
+
+        if (!request.data || Object.keys(request.data).length === 0) {
+            return { success: false, message: "No data submitted yet" };
+        }
+
+        // Check if a client with this name already exists
+        const existingClient = await prisma.client.findUnique({
+            where: { clientName: request.clientName }
+        });
+
+        if (existingClient) {
+            return { success: false, message: "A client with this name already exists in Client Data" };
+        }
+
+        // Create the client record and update the request status in a transaction
+        const result = await prisma.$transaction(async (tx) => {
+            // Create client
+            const client = await tx.client.create({
+                data: {
+                    clientName: request.clientName,
+                    credentials: request.data as any,
+                    config: request.config as any,
+                    source: "ONBOARDING",
+                    requestId: request.id,
+                    userId: user.id
+                }
+            });
+
+            // Update request status
+            await tx.credentialRequest.update({
+                where: { id },
+                data: { status: "ACCEPTED" }
+            });
+
+            return client;
+        });
+
+        return { success: true, client: result, message: "Request accepted and client created successfully" };
     } catch (error: any) {
         console.error("Failed to accept credential request:", error);
         return { success: false, message: error.message };
     }
 }
+
 // Admin Action: Update request config
 export async function updateCredentialRequestConfig(id: string, config: CredentialRequestConfig) {
     const session = await getServerSession(authOptions);
@@ -315,6 +367,237 @@ export async function deleteCredentialPreset(id: string) {
         return { success: true };
     } catch (error: any) {
         console.error("Failed to delete preset:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// ============================================================================
+// CLIENT DATA MANAGEMENT ACTIONS
+// ============================================================================
+
+// Admin Action: Get all clients with search and pagination
+export async function getAllClients(search?: string, page: number = 1, pageSize: number = 10) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        const skip = (page - 1) * pageSize;
+
+        const where: any = { userId: user.id };
+        if (search) {
+            where.clientName = {
+                contains: search,
+                mode: 'insensitive',
+            };
+        }
+
+        const [clients, total] = await Promise.all([
+            prisma.client.findMany({
+                where,
+                skip,
+                take: pageSize,
+                orderBy: { createdAt: "desc" },
+            }),
+            prisma.client.count({ where }),
+        ]);
+
+        return {
+            success: true,
+            clients,
+            total,
+            totalPages: Math.ceil(total / pageSize),
+            currentPage: page
+        };
+    } catch (error: any) {
+        console.error("Failed to fetch clients:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Admin Action: Get client by ID with full details
+export async function getClientById(id: string) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        const client = await prisma.client.findUnique({
+            where: { id, userId: user.id }, // Ensure ownership
+        });
+
+        if (!client) {
+            return { success: false, message: "Client not found" };
+        }
+
+        return { success: true, client };
+    } catch (error: any) {
+        console.error("Failed to fetch client:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Admin Action: Create client manually
+export async function createClient(
+    clientName: string,
+    credentials: CredentialRequestData,
+    config: CredentialRequestConfig
+) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        // Check if a client with this name already exists
+        const existingClient = await prisma.client.findUnique({
+            where: { clientName }
+        });
+
+        if (existingClient) {
+            return { success: false, message: "A client with this name already exists" };
+        }
+
+        // Also check if there's a pending/submitted request with this name
+        const existingRequest = await prisma.credentialRequest.findUnique({
+            where: { clientName }
+        });
+
+        if (existingRequest) {
+            return { success: false, message: "A credential request with this name already exists" };
+        }
+
+        const client = await prisma.client.create({
+            data: {
+                clientName,
+                credentials: credentials as any,
+                config: config as any,
+                source: "MANUAL",
+                userId: user.id
+            }
+        });
+
+        return { success: true, client };
+    } catch (error: any) {
+        console.error("Failed to create client:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Admin Action: Update client
+export async function updateClient(
+    id: string,
+    clientName: string,
+    credentials: CredentialRequestData,
+    config: CredentialRequestConfig
+) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        // Get the current client to check ownership
+        const currentClient = await prisma.client.findUnique({
+            where: { id, userId: user.id }
+        });
+
+        if (!currentClient) {
+            return { success: false, message: "Client not found" };
+        }
+
+        // If client name is changing, check for uniqueness
+        if (clientName !== currentClient.clientName) {
+            const existingClient = await prisma.client.findUnique({
+                where: { clientName }
+            });
+
+            if (existingClient) {
+                return { success: false, message: "A client with this name already exists" };
+            }
+
+            const existingRequest = await prisma.credentialRequest.findUnique({
+                where: { clientName }
+            });
+
+            if (existingRequest) {
+                return { success: false, message: "A credential request with this name already exists" };
+            }
+        }
+
+        const client = await prisma.client.update({
+            where: { id, userId: user.id },
+            data: {
+                clientName,
+                credentials: credentials as any,
+                config: config as any,
+            }
+        });
+
+        return { success: true, client };
+    } catch (error: any) {
+        console.error("Failed to update client:", error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Admin Action: Delete client
+export async function deleteClient(id: string) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email }
+        });
+
+        if (!user) {
+            return { success: false, message: "User not found" };
+        }
+
+        await prisma.client.delete({
+            where: { id, userId: user.id }, // Ensure ownership
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("Failed to delete client:", error);
         return { success: false, message: error.message };
     }
 }
