@@ -867,48 +867,118 @@ export default function Dashboard() {
                                                             className="bg-transparent border-b-2 border-white/5 w-full text-white font-black focus:outline-none focus:border-brand-primary text-lg pb-2 transition-colors"
                                                             placeholder="Section Title"
                                                         />
-                                                    </div>
-
-                                                    <div className="space-y-3 pl-4 border-l-2 border-brand-primary/20">
-                                                        {section.fields.map((field: any, fIdx: number) => (
-                                                            <div key={field.id} className="flex items-center gap-3 bg-black/40 p-2 rounded-xl border border-white/5">
-                                                                <input
-                                                                    type="text"
-                                                                    value={field.label}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...presetFormData.config];
-                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
-                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
-                                                                    }}
-                                                                    className="bg-transparent px-3 py-1.5 text-xs text-white focus:outline-none flex-grow font-bold"
-                                                                    placeholder="Field Label"
-                                                                />
-                                                                <select
-                                                                    value={field.type}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...presetFormData.config];
-                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
-                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
-                                                                    }}
-                                                                    className="bg-white/5 rounded-lg px-3 py-1.5 text-[10px] font-bold text-zinc-400 border border-white/10 focus:outline-none w-28 uppercase tracking-widest"
-                                                                >
-                                                                    <option value="text">TEXT</option>
-                                                                    <option value="password">PASSWORD</option>
-                                                                    <option value="longtext">LONG TEXT</option>
-                                                                    <option value="image">IMAGE</option>
-                                                                    <option value="file">FILE</option>
-                                                                </select>
+                                                        <div className="space-y-4 mt-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Guide Links</span>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const newConfig = [...presetFormData.config];
-                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        if (!newConfig[sIdx].guides) newConfig[sIdx].guides = [];
+                                                                        newConfig[sIdx].guides.push({ url: "", comment: "" });
                                                                         setPresetFormData({ ...presetFormData, config: newConfig });
                                                                     }}
-                                                                    className="text-zinc-600 hover:text-red-500 p-1"
+                                                                    className="text-[10px] text-brand-primary hover:text-white font-bold transition-colors"
                                                                 >
-                                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                    + Add Link
                                                                 </button>
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                {section.guides?.map((guide: any, gIdx: number) => (
+                                                                    <div key={gIdx} className="space-y-2 bg-white/5 p-2 rounded-lg relative group/guide">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const newConfig = [...presetFormData.config];
+                                                                                newConfig[sIdx].guides.splice(gIdx, 1);
+                                                                                setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                            }}
+                                                                            className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/guide:opacity-100 transition-opacity text-xs"
+                                                                        >
+                                                                            &times;
+                                                                        </button>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.url}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...presetFormData.config];
+                                                                                newConfig[sIdx].guides[gIdx].url = e.target.value;
+                                                                                setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-300 text-xs w-full focus:outline-none focus:text-white border-b border-white/5 pb-1"
+                                                                            placeholder="URL (YouTube/Guide)"
+                                                                        />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.comment || ""}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...presetFormData.config];
+                                                                                newConfig[sIdx].guides[gIdx].comment = e.target.value;
+                                                                                setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-500 text-[10px] w-full focus:outline-none focus:text-white border-b border-white/5 pb-1"
+                                                                            placeholder="Label/Comment"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+
+                                                    <div className="space-y-3 pl-4 border-l-2 border-brand-primary/20">
+                                                        {section.fields.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="space-y-2 bg-black/40 p-3 rounded-xl border border-white/5">
+                                                                <div className="flex items-center gap-3">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={field.label}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...presetFormData.config];
+                                                                            newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                            setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                        }}
+                                                                        className="bg-transparent px-3 py-1.5 text-xs text-white focus:outline-none flex-grow font-bold"
+                                                                        placeholder="Field Label"
+                                                                    />
+                                                                    <select
+                                                                        value={field.type}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...presetFormData.config];
+                                                                            newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                            setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                        }}
+                                                                        className="bg-white/5 rounded-lg px-3 py-1.5 text-[10px] font-bold text-zinc-400 border border-white/10 focus:outline-none w-28 uppercase tracking-widest"
+                                                                    >
+                                                                        <option value="text">TEXT</option>
+                                                                        <option value="password">PASSWORD</option>
+                                                                        <option value="longtext">LONG TEXT</option>
+                                                                        <option value="image">IMAGE</option>
+                                                                        <option value="file">FILE</option>
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const newConfig = [...presetFormData.config];
+                                                                            newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                            setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                        }}
+                                                                        className="text-zinc-600 hover:text-red-500 p-1"
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                    </button>
+                                                                </div>
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.description || ""}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...presetFormData.config];
+                                                                        newConfig[sIdx].fields[fIdx].description = e.target.value;
+                                                                        setPresetFormData({ ...presetFormData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-transparent px-3 py-1 text-[10px] text-zinc-500 focus:outline-none w-full border-t border-white/5 pt-2"
+                                                                    placeholder="Explanation/Comment for client (optional)"
+                                                                />
                                                             </div>
                                                         ))}
                                                         <button
@@ -1066,59 +1136,118 @@ export default function Dashboard() {
                                                             className="bg-transparent border-b border-white/10 w-full text-white font-bold focus:outline-none focus:border-brand-primary text-sm pb-1"
                                                             placeholder="Section Title"
                                                         />
-                                                        <input
-                                                            type="text"
-                                                            value={section.guideUrl || ""}
-                                                            onChange={(e) => {
-                                                                const newConfig = [...newRequestData.config];
-                                                                newConfig[sIdx].guideUrl = e.target.value;
-                                                                setNewRequestData({ ...newRequestData, config: newConfig });
-                                                            }}
-                                                            className="bg-transparent text-zinc-500 text-xs w-full focus:outline-none focus:text-white"
-                                                            placeholder="Paste Guide/Video URL here (optional)"
-                                                        />
-                                                    </div>
-
-                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
-                                                        {section.fields.map((field: any, fIdx: number) => (
-                                                            <div key={field.id} className="flex items-center gap-2">
-                                                                <input
-                                                                    type="text"
-                                                                    value={field.label}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...newRequestData.config];
-                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
-                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
-                                                                    }}
-                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
-                                                                    placeholder="Label"
-                                                                />
-                                                                <select
-                                                                    value={field.type}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...newRequestData.config];
-                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
-                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
-                                                                    }}
-                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
-                                                                >
-                                                                    <option value="text">Text</option>
-                                                                    <option value="password">Password</option>
-                                                                    <option value="longtext">Long Text</option>
-                                                                    <option value="image">Image</option>
-                                                                    <option value="file">File</option>
-                                                                </select>
+                                                        <div className="space-y-3 mt-3">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tight">Guide Links</span>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const newConfig = [...newRequestData.config];
-                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        if (!newConfig[sIdx].guides) newConfig[sIdx].guides = [];
+                                                                        newConfig[sIdx].guides.push({ url: "", comment: "" });
                                                                         setNewRequestData({ ...newRequestData, config: newConfig });
                                                                     }}
-                                                                    className="text-zinc-600 hover:text-red-500"
+                                                                    className="text-[9px] text-brand-primary hover:text-white font-bold transition-colors"
                                                                 >
-                                                                    &times;
+                                                                    + Add Link
                                                                 </button>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                {section.guides?.map((guide: any, gIdx: number) => (
+                                                                    <div key={gIdx} className="space-y-1 bg-white/5 p-1.5 rounded relative group/guide">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const newConfig = [...newRequestData.config];
+                                                                                newConfig[sIdx].guides.splice(gIdx, 1);
+                                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                            }}
+                                                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/guide:opacity-100 transition-opacity text-[10px]"
+                                                                        >
+                                                                            &times;
+                                                                        </button>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.url}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...newRequestData.config];
+                                                                                newConfig[sIdx].guides[gIdx].url = e.target.value;
+                                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-300 text-[10px] w-full focus:outline-none focus:text-white border-b border-white/5 pb-0.5"
+                                                                            placeholder="URL"
+                                                                        />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.comment || ""}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...newRequestData.config];
+                                                                                newConfig[sIdx].guides[gIdx].comment = e.target.value;
+                                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-500 text-[9px] w-full focus:outline-none focus:text-white"
+                                                                            placeholder="Label/Comment"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+
+                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
+                                                        {section.fields.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="space-y-1 bg-black/40 p-2 rounded-lg border border-white/5">
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={field.label}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...newRequestData.config];
+                                                                            newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                            setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                        }}
+                                                                        className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
+                                                                        placeholder="Label"
+                                                                    />
+                                                                    <select
+                                                                        value={field.type}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...newRequestData.config];
+                                                                            newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                            setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                        }}
+                                                                        className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
+                                                                    >
+                                                                        <option value="text">Text</option>
+                                                                        <option value="password">Password</option>
+                                                                        <option value="longtext">Long Text</option>
+                                                                        <option value="image">Image</option>
+                                                                        <option value="file">File</option>
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const newConfig = [...newRequestData.config];
+                                                                            newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                            setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                        }}
+                                                                        className="text-zinc-600 hover:text-red-500"
+                                                                    >
+                                                                        &times;
+                                                                    </button>
+                                                                </div>
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.description || ""}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...newRequestData.config];
+                                                                        newConfig[sIdx].fields[fIdx].description = e.target.value;
+                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-transparent px-2 py-0.5 text-[10px] text-zinc-500 focus:outline-none w-full border-t border-white/5 mt-1 pt-1"
+                                                                    placeholder="Field comment (optional)"
+                                                                />
                                                             </div>
                                                         ))}
                                                         <button
@@ -1301,59 +1430,118 @@ export default function Dashboard() {
                                                             className="bg-transparent border-b border-white/10 w-full text-white font-bold focus:outline-none focus:border-brand-primary text-sm pb-1"
                                                             placeholder="Section Title"
                                                         />
-                                                        <input
-                                                            type="text"
-                                                            value={section.guideUrl || ""}
-                                                            onChange={(e) => {
-                                                                const newConfig = [...editConfigData];
-                                                                newConfig[sIdx].guideUrl = e.target.value;
-                                                                setEditConfigData(newConfig);
-                                                            }}
-                                                            className="bg-transparent text-zinc-500 text-xs w-full focus:outline-none focus:text-white"
-                                                            placeholder="Paste Guide/Video URL here (optional)"
-                                                        />
-                                                    </div>
-
-                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
-                                                        {section.fields?.map((field: any, fIdx: number) => (
-                                                            <div key={field.id} className="flex items-center gap-2">
-                                                                <input
-                                                                    type="text"
-                                                                    value={field.label}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...editConfigData];
-                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
-                                                                        setEditConfigData(newConfig);
-                                                                    }}
-                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
-                                                                    placeholder="Label"
-                                                                />
-                                                                <select
-                                                                    value={field.type}
-                                                                    onChange={(e) => {
-                                                                        const newConfig = [...editConfigData];
-                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
-                                                                        setEditConfigData(newConfig);
-                                                                    }}
-                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
-                                                                >
-                                                                    <option value="text">Text</option>
-                                                                    <option value="password">Password</option>
-                                                                    <option value="longtext">Long Text</option>
-                                                                    <option value="image">Image</option>
-                                                                    <option value="file">File</option>
-                                                                </select>
+                                                        <div className="space-y-3 mt-3">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tight">Guide Links</span>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => {
                                                                         const newConfig = [...editConfigData];
-                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        if (!newConfig[sIdx].guides) newConfig[sIdx].guides = [];
+                                                                        newConfig[sIdx].guides.push({ url: "", comment: "" });
                                                                         setEditConfigData(newConfig);
                                                                     }}
-                                                                    className="text-zinc-600 hover:text-red-500"
+                                                                    className="text-[9px] text-brand-primary hover:text-white font-bold transition-colors"
                                                                 >
-                                                                    &times;
+                                                                    + Add Link
                                                                 </button>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                {section.guides?.map((guide: any, gIdx: number) => (
+                                                                    <div key={gIdx} className="space-y-1 bg-white/5 p-1.5 rounded relative group/guide">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const newConfig = [...editConfigData];
+                                                                                newConfig[sIdx].guides.splice(gIdx, 1);
+                                                                                setEditConfigData(newConfig);
+                                                                            }}
+                                                                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/guide:opacity-100 transition-opacity text-[10px]"
+                                                                        >
+                                                                            &times;
+                                                                        </button>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.url}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...editConfigData];
+                                                                                newConfig[sIdx].guides[gIdx].url = e.target.value;
+                                                                                setEditConfigData(newConfig);
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-300 text-[10px] w-full focus:outline-none focus:text-white border-b border-white/5 pb-0.5"
+                                                                            placeholder="URL"
+                                                                        />
+                                                                        <input
+                                                                            type="text"
+                                                                            value={guide.comment || ""}
+                                                                            onChange={(e) => {
+                                                                                const newConfig = [...editConfigData];
+                                                                                newConfig[sIdx].guides[gIdx].comment = e.target.value;
+                                                                                setEditConfigData(newConfig);
+                                                                            }}
+                                                                            className="bg-transparent text-zinc-500 text-[9px] w-full focus:outline-none focus:text-white"
+                                                                            placeholder="Label/Comment"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+
+                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
+                                                        {section.fields?.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="space-y-1 bg-black/40 p-2 rounded-lg border border-white/5">
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={field.label}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...editConfigData];
+                                                                            newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                            setEditConfigData(newConfig);
+                                                                        }}
+                                                                        className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
+                                                                        placeholder="Label"
+                                                                    />
+                                                                    <select
+                                                                        value={field.type}
+                                                                        onChange={(e) => {
+                                                                            const newConfig = [...editConfigData];
+                                                                            newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                            setEditConfigData(newConfig);
+                                                                        }}
+                                                                        className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
+                                                                    >
+                                                                        <option value="text">Text</option>
+                                                                        <option value="password">Password</option>
+                                                                        <option value="longtext">Long Text</option>
+                                                                        <option value="image">Image</option>
+                                                                        <option value="file">File</option>
+                                                                    </select>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const newConfig = [...editConfigData];
+                                                                            newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                            setEditConfigData(newConfig);
+                                                                        }}
+                                                                        className="text-zinc-600 hover:text-red-500"
+                                                                    >
+                                                                        &times;
+                                                                    </button>
+                                                                </div>
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.description || ""}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...editConfigData];
+                                                                        newConfig[sIdx].fields[fIdx].description = e.target.value;
+                                                                        setEditConfigData(newConfig);
+                                                                    }}
+                                                                    className="bg-transparent px-2 py-0.5 text-[10px] text-zinc-500 focus:outline-none w-full border-t border-white/5 mt-1 pt-1"
+                                                                    placeholder="Field comment (optional)"
+                                                                />
                                                             </div>
                                                         ))}
                                                         <button

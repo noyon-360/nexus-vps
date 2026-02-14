@@ -299,16 +299,21 @@ export default function CollectCredentialsPage() {
                                             <p className="text-xs text-zinc-500 uppercase tracking-wider">{section.description || "Secure Entry"}</p>
                                         </div>
                                     </div>
-                                    {section.guideUrl && (
-                                        <a
-                                            href={section.guideUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="px-4 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                            View Guide
-                                        </a>
+                                    {section.guides && section.guides.length > 0 && (
+                                        <div className="flex flex-wrap gap-2">
+                                            {section.guides.map((guide: any, gIdx: number) => (
+                                                <a
+                                                    key={gIdx}
+                                                    href={guide.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="px-4 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2"
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                    {guide.comment || "View Guide"}
+                                                </a>
+                                            ))}
+                                        </div>
                                     )}
                                 </div>
                                 <div className="space-y-6 relative z-10">
@@ -317,6 +322,12 @@ export default function CollectCredentialsPage() {
                                             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">
                                                 {field.label} {field.required && <span className="text-brand-primary">*</span>}
                                             </label>
+
+                                            {field.description && (
+                                                <p className="text-[10px] text-zinc-600 ml-1 leading-relaxed">
+                                                    {field.description}
+                                                </p>
+                                            )}
 
                                             {renderFieldInput(section.id, field)}
                                         </div>

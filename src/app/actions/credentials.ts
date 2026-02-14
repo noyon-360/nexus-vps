@@ -20,7 +20,7 @@ export interface CredentialSection {
     id: string;
     title: string;
     description?: string;
-    guideUrl?: string; // YouTube or Doc link
+    guides?: { url: string; comment?: string }[];
     fields: CredentialField[];
 }
 
