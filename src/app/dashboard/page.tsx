@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { testVpsConnection, saveVps, getVpsList, deleteVps, updateVps } from "@/app/actions/vps";
-import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest } from "@/app/actions/credentials";
+import { createCredentialRequest, getAllCredentialRequests, deleteCredentialRequest, updateCredentialRequestConfig } from "@/app/actions/credentials";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect } from "react";
 
@@ -29,15 +29,11 @@ export default function Dashboard() {
     const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false);
     const [isViewDrawerOpen, setIsViewDrawerOpen] = useState(false);
     const [selectedRequest, setSelectedRequest] = useState<any>(null);
+    const [isEditingConfig, setIsEditingConfig] = useState(false);
+    const [editConfigData, setEditConfigData] = useState<any[]>([]);
     const [newRequestData, setNewRequestData] = useState({
         clientName: "",
-        config: {
-            apple: true,
-            google: true,
-            mongo: true,
-            googleEmail: true,
-            cloudStorage: true,
-        },
+        config: [] as any[],
     });
 
     // VPS Form State
@@ -85,7 +81,7 @@ export default function Dashboard() {
                 setIsRequestDialogOpen(false);
                 setNewRequestData({
                     clientName: "",
-                    config: { apple: true, google: true, mongo: true, googleEmail: true, cloudStorage: true },
+                    config: [],
                 });
                 fetchRequestsList();
             } else {
@@ -640,7 +636,8 @@ export default function Dashboard() {
                                     </button>
                                 </div>
 
-                                <form onSubmit={handleCreateRequest} className="space-y-6">
+
+                                <form onSubmit={handleCreateRequest} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Client Name</label>
                                         <input
@@ -654,28 +651,201 @@ export default function Dashboard() {
                                     </div>
 
                                     <div className="space-y-4">
-                                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Requested Credentials</label>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {Object.keys(newRequestData.config).map((key) => (
-                                                <div
-                                                    key={key}
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Request Configuration</label>
+                                            <div className="flex gap-2">
+                                                <select
+                                                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-zinc-400 focus:outline-none"
+                                                    onChange={(e) => {
+                                                        const presetName = e.target.value;
+                                                        if (!presetName) return;
+                                                        let newConfig: any[] = [...newRequestData.config];
+
+                                                        if (presetName === 'vps') {
+                                                            newConfig.push({
+                                                                id: crypto.randomUUID(),
+                                                                title: 'VPS Access',
+                                                                description: 'Server credentials',
+                                                                fields: [
+                                                                    { id: crypto.randomUUID(), label: 'IP Address', type: 'text', required: true, placeholder: '192.168.1.1' },
+                                                                    { id: crypto.randomUUID(), label: 'Username', type: 'text', required: true, placeholder: 'root' },
+                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'SSH Key (Optional)', type: 'longtext', required: false, placeholder: 'ssh-rsa AAAA...' },
+                                                                ]
+                                                            });
+                                                        } else if (presetName === 'google') {
+                                                            newConfig.push({
+                                                                id: crypto.randomUUID(),
+                                                                title: 'Google Play Console',
+                                                                description: 'Developer account access',
+                                                                fields: [
+                                                                    { id: crypto.randomUUID(), label: 'Email', type: 'text', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'Service Account JSON', type: 'file', required: false },
+                                                                ]
+                                                            });
+                                                        } else if (presetName === 'apple') {
+                                                            newConfig.push({
+                                                                id: crypto.randomUUID(),
+                                                                title: 'Apple App Store',
+                                                                description: 'Developer account access',
+                                                                fields: [
+                                                                    { id: crypto.randomUUID(), label: 'Apple ID', type: 'text', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'Password', type: 'password', required: true },
+                                                                    { id: crypto.randomUUID(), label: '2FA Code / Note', type: 'text', required: false },
+                                                                ]
+                                                            });
+                                                        } else if (presetName === 'cloudinary') {
+                                                            newConfig.push({
+                                                                id: crypto.randomUUID(),
+                                                                title: 'Cloudinary',
+                                                                description: 'API Keys',
+                                                                fields: [
+                                                                    { id: crypto.randomUUID(), label: 'Cloud Name', type: 'text', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'API Key', type: 'text', required: true },
+                                                                    { id: crypto.randomUUID(), label: 'API Secret', type: 'password', required: true },
+                                                                ]
+                                                            });
+                                                        }
+                                                        setNewRequestData({ ...newRequestData, config: newConfig });
+                                                        e.target.value = ""; // reset
+                                                    }}
+                                                >
+                                                    <option value="">+ Load Preset</option>
+                                                    <option value="vps">VPS Access</option>
+                                                    <option value="google">Google Play</option>
+                                                    <option value="apple">Apple Store</option>
+                                                    <option value="cloudinary">Cloudinary</option>
+                                                </select>
+                                                <button
+                                                    type="button"
                                                     onClick={() => setNewRequestData({
                                                         ...newRequestData,
-                                                        config: { ...newRequestData.config, [key]: !newRequestData.config[key as keyof typeof newRequestData.config] }
+                                                        config: [...newRequestData.config, {
+                                                            id: crypto.randomUUID(),
+                                                            title: 'New Section',
+                                                            fields: []
+                                                        }]
                                                     })}
-                                                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center gap-3 ${newRequestData.config[key as keyof typeof newRequestData.config] ? 'bg-brand-primary/10 border-brand-primary/30 text-white' : 'bg-white/5 border-transparent text-zinc-500 hover:bg-white/10'}`}
+                                                    className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors"
                                                 >
-                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${newRequestData.config[key as keyof typeof newRequestData.config] ? 'bg-brand-primary border-brand-primary' : 'border-zinc-600'}`}>
-                                                        {newRequestData.config[key as keyof typeof newRequestData.config] && <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>}
+                                                    + Section
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {newRequestData.config.length === 0 && (
+                                                <div className="py-8 text-center border-2 border-dashed border-white/5 rounded-xl text-zinc-600 text-sm">
+                                                    No sections added. Load a preset or add a custom section.
+                                                </div>
+                                            )}
+
+                                            {newRequestData.config.map((section: any, sIdx: number) => (
+                                                <div key={section.id} className="bg-white/5 border border-white/5 rounded-xl p-4 relative group">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newConfig = [...newRequestData.config];
+                                                            newConfig.splice(sIdx, 1);
+                                                            setNewRequestData({ ...newRequestData, config: newConfig });
+                                                        }}
+                                                        className="absolute top-2 right-2 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+
+                                                    <div className="space-y-3 mb-4">
+                                                        <input
+                                                            type="text"
+                                                            value={section.title}
+                                                            onChange={(e) => {
+                                                                const newConfig = [...newRequestData.config];
+                                                                newConfig[sIdx].title = e.target.value;
+                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                            }}
+                                                            className="bg-transparent border-b border-white/10 w-full text-white font-bold focus:outline-none focus:border-brand-primary text-sm pb-1"
+                                                            placeholder="Section Title"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            value={section.guideUrl || ""}
+                                                            onChange={(e) => {
+                                                                const newConfig = [...newRequestData.config];
+                                                                newConfig[sIdx].guideUrl = e.target.value;
+                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                            }}
+                                                            className="bg-transparent text-zinc-500 text-xs w-full focus:outline-none focus:text-white"
+                                                            placeholder="Paste Guide/Video URL here (optional)"
+                                                        />
                                                     </div>
-                                                    <span className="text-xs font-bold uppercase tracking-wider">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+
+                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
+                                                        {section.fields.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="flex items-center gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.label}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...newRequestData.config];
+                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
+                                                                    placeholder="Label"
+                                                                />
+                                                                <select
+                                                                    value={field.type}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...newRequestData.config];
+                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                    }}
+                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
+                                                                >
+                                                                    <option value="text">Text</option>
+                                                                    <option value="password">Password</option>
+                                                                    <option value="longtext">Long Text</option>
+                                                                    <option value="image">Image</option>
+                                                                    <option value="file">File</option>
+                                                                </select>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const newConfig = [...newRequestData.config];
+                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        setNewRequestData({ ...newRequestData, config: newConfig });
+                                                                    }}
+                                                                    className="text-zinc-600 hover:text-red-500"
+                                                                >
+                                                                    &times;
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newConfig = [...newRequestData.config];
+                                                                newConfig[sIdx].fields.push({
+                                                                    id: crypto.randomUUID(),
+                                                                    label: 'New Field',
+                                                                    type: 'text',
+                                                                    required: true
+                                                                });
+                                                                setNewRequestData({ ...newRequestData, config: newConfig });
+                                                            }}
+                                                            className="text-[10px] text-zinc-500 hover:text-brand-primary font-bold uppercase tracking-wider mt-2 flex items-center gap-1"
+                                                        >
+                                                            + Add Field
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
 
-                                    <button type="submit" disabled={isConnecting} className="w-full py-4 rounded-xl bg-brand-primary text-black font-black text-xs tracking-widest uppercase hover:bg-white transition-all mt-4">
-                                        {isConnecting ? "Generated..." : "Generate Link"}
+                                    <button type="submit" disabled={isConnecting} className="w-full py-4 rounded-xl bg-brand-primary text-black font-black text-xs tracking-widest uppercase hover:bg-white transition-all mt-4 mb-2">
+                                        {isConnecting ? "Generated..." : "Generate & Copy Link"}
                                     </button>
                                 </form>
                             </div>
@@ -693,42 +863,229 @@ export default function Dashboard() {
                             <div className="p-8 border-b border-white/10 flex items-center justify-between">
                                 <div>
                                     <h3 className="text-2xl font-black text-white">{selectedRequest.clientName}</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-widest mt-1">Submitted Credentials</p>
+                                    <p className="text-xs text-zinc-500 uppercase tracking-widest mt-1">
+                                        {isEditingConfig ? "Editing Configuration" : "Submitted Credentials"}
+                                    </p>
                                 </div>
-                                <button onClick={() => setIsViewDrawerOpen(false)} className="w-10 h-10 rounded-xl bg-white/5 text-zinc-500 hover:text-white flex items-center justify-center">
-                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {!isEditingConfig ? (
+                                        <button
+                                            onClick={() => {
+                                                setEditConfigData(Array.isArray(selectedRequest.config) ? selectedRequest.config : []);
+                                                setIsEditingConfig(true);
+                                            }}
+                                            className="px-3 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
+                                        >
+                                            Edit Config
+                                        </button>
+                                    ) : (
+                                        <>
+                                            <button
+                                                onClick={() => setIsEditingConfig(false)}
+                                                className="px-3 py-2 rounded-xl bg-transparent text-xs font-bold text-zinc-500 hover:text-white transition-all"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={async () => {
+                                                    setIsConnecting(true);
+                                                    const result = await updateCredentialRequestConfig(selectedRequest.id, editConfigData);
+                                                    setIsConnecting(false);
+                                                    if (result.success) {
+                                                        setSelectedRequest({ ...selectedRequest, config: editConfigData });
+                                                        setIsEditingConfig(false);
+                                                        fetchRequestsList(); // Refresh list to update config
+                                                    } else {
+                                                        alert("Failed to update config");
+                                                    }
+                                                }}
+                                                className="px-3 py-2 rounded-xl bg-brand-primary text-black text-xs font-bold hover:bg-white transition-all disabled:opacity-50"
+                                                disabled={isConnecting}
+                                            >
+                                                {isConnecting ? "Saving..." : "Save Changes"}
+                                            </button>
+                                        </>
+                                    )}
+                                    <button onClick={() => { setIsViewDrawerOpen(false); setIsEditingConfig(false); }} className="w-10 h-10 rounded-xl bg-white/5 text-zinc-500 hover:text-white flex items-center justify-center">
+                                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
                             </div>
                             <div className="flex-grow overflow-y-auto p-8 space-y-8">
-                                {selectedRequest.data ? (
-                                    Object.entries(selectedRequest.data).map(([section, data]: [string, any]) => (
-                                        <div key={section} className="bg-white/5 rounded-2xl p-6 border border-white/5">
-                                            <h4 className="text-lg font-bold text-brand-primary uppercase mb-6 pb-2 border-b border-white/10">{section}</h4>
-                                            <div className="grid grid-cols-1 gap-6">
-                                                {Object.entries(data).map(([key, value]) => (
-                                                    <div key={key}>
-                                                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">{key}</label>
-                                                        {Array.isArray(value) ? ( // Check if it implies images or lists
-                                                            <div className="grid grid-cols-2 gap-4">
-                                                                {value.map((item: any, idx: number) => (
-                                                                    // Simple check for base64 image or just text
-                                                                    typeof item === 'string' && item.startsWith('data:image') ?
-                                                                        <img key={idx} src={item} alt="Screenshot" className="rounded-lg border border-white/10 w-full" /> :
-                                                                        <div key={idx} className="p-3 rounded bg-black/20 text-sm font-mono text-zinc-300">{item}</div>
-                                                                ))}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-sm font-mono text-zinc-200 break-all select-all">
-                                                                {String(value)}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
+                                {isEditingConfig ? (
+                                    <div className="space-y-6">
+                                        {/* Reuse the builder UI logic here, mapped to editConfigData */}
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Form Configuration</h4>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditConfigData([...editConfigData, {
+                                                    id: crypto.randomUUID(),
+                                                    title: 'New Section',
+                                                    fields: []
+                                                }])}
+                                                className="px-3 py-1 rounded-lg bg-brand-primary/10 text-brand-primary text-xs font-bold hover:bg-brand-primary hover:text-black transition-colors"
+                                            >
+                                                + Section
+                                            </button>
                                         </div>
-                                    ))
+
+                                        <div className="space-y-4">
+                                            {editConfigData.length === 0 && (
+                                                <div className="py-8 text-center border-2 border-dashed border-white/5 rounded-xl text-zinc-600 text-sm">
+                                                    No sections. Add a custom section.
+                                                </div>
+                                            )}
+
+                                            {editConfigData.map((section: any, sIdx: number) => (
+                                                <div key={section.id} className="bg-white/5 border border-white/5 rounded-xl p-4 relative group">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newConfig = [...editConfigData];
+                                                            newConfig.splice(sIdx, 1);
+                                                            setEditConfigData(newConfig);
+                                                        }}
+                                                        className="absolute top-2 right-2 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+
+                                                    <div className="space-y-3 mb-4">
+                                                        <input
+                                                            type="text"
+                                                            value={section.title}
+                                                            onChange={(e) => {
+                                                                const newConfig = [...editConfigData];
+                                                                newConfig[sIdx].title = e.target.value;
+                                                                setEditConfigData(newConfig);
+                                                            }}
+                                                            className="bg-transparent border-b border-white/10 w-full text-white font-bold focus:outline-none focus:border-brand-primary text-sm pb-1"
+                                                            placeholder="Section Title"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            value={section.guideUrl || ""}
+                                                            onChange={(e) => {
+                                                                const newConfig = [...editConfigData];
+                                                                newConfig[sIdx].guideUrl = e.target.value;
+                                                                setEditConfigData(newConfig);
+                                                            }}
+                                                            className="bg-transparent text-zinc-500 text-xs w-full focus:outline-none focus:text-white"
+                                                            placeholder="Paste Guide/Video URL here (optional)"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2 pl-2 border-l-2 border-white/5">
+                                                        {section.fields?.map((field: any, fIdx: number) => (
+                                                            <div key={field.id} className="flex items-center gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={field.label}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...editConfigData];
+                                                                        newConfig[sIdx].fields[fIdx].label = e.target.value;
+                                                                        setEditConfigData(newConfig);
+                                                                    }}
+                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-white border border-white/5 focus:border-brand-primary focus:outline-none flex-grow"
+                                                                    placeholder="Label"
+                                                                />
+                                                                <select
+                                                                    value={field.type}
+                                                                    onChange={(e) => {
+                                                                        const newConfig = [...editConfigData];
+                                                                        newConfig[sIdx].fields[fIdx].type = e.target.value;
+                                                                        setEditConfigData(newConfig);
+                                                                    }}
+                                                                    className="bg-black/20 rounded px-2 py-1 text-xs text-zinc-400 border border-white/5 focus:outline-none w-24"
+                                                                >
+                                                                    <option value="text">Text</option>
+                                                                    <option value="password">Password</option>
+                                                                    <option value="longtext">Long Text</option>
+                                                                    <option value="image">Image</option>
+                                                                    <option value="file">File</option>
+                                                                </select>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const newConfig = [...editConfigData];
+                                                                        newConfig[sIdx].fields.splice(fIdx, 1);
+                                                                        setEditConfigData(newConfig);
+                                                                    }}
+                                                                    className="text-zinc-600 hover:text-red-500"
+                                                                >
+                                                                    &times;
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const newConfig = [...editConfigData];
+                                                                if (!newConfig[sIdx].fields) newConfig[sIdx].fields = [];
+                                                                newConfig[sIdx].fields.push({
+                                                                    id: crypto.randomUUID(),
+                                                                    label: 'New Field',
+                                                                    type: 'text',
+                                                                    required: true
+                                                                });
+                                                                setEditConfigData(newConfig);
+                                                            }}
+                                                            className="text-[10px] text-zinc-500 hover:text-brand-primary font-bold uppercase tracking-wider mt-2 flex items-center gap-1"
+                                                        >
+                                                            + Add Field
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 ) : (
-                                    <div className="text-center text-zinc-500 py-20">No data submitted yet.</div>
+                                    selectedRequest.data ? (
+                                        Object.entries(selectedRequest.data).map(([sectionId, fields]: [string, any]) => {
+                                            // Try to find section config
+                                            const sectionConfig = Array.isArray(selectedRequest.config)
+                                                ? selectedRequest.config.find((s: any) => s.id === sectionId)
+                                                : null; // Handle backward compatibility or missing config
+
+                                            // Fallback for Title if using old format or ID not found
+                                            const sectionTitle = sectionConfig?.title || sectionId;
+
+                                            return (
+                                                <div key={sectionId} className="bg-white/5 rounded-2xl p-6 border border-white/5">
+                                                    <h4 className="text-lg font-bold text-brand-primary uppercase mb-6 pb-2 border-b border-white/10">{sectionTitle}</h4>
+                                                    <div className="grid grid-cols-1 gap-6">
+                                                        {Object.entries(fields).map(([fieldId, value]) => {
+                                                            // Resolve Field Label
+                                                            const fieldConfig = sectionConfig?.fields.find((f: any) => f.id === fieldId);
+                                                            const fieldLabel = fieldConfig?.label || fieldId;
+
+                                                            return (
+                                                                <div key={fieldId}>
+                                                                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">{fieldLabel}</label>
+                                                                    {Array.isArray(value) ? (
+                                                                        <div className="grid grid-cols-2 gap-4">
+                                                                            {value.map((item: any, idx: number) => (
+                                                                                typeof item === 'string' && item.startsWith('data:image') ?
+                                                                                    <img key={idx} src={item} alt="Screenshot" className="rounded-lg border border-white/10 w-full" /> :
+                                                                                    <div key={idx} className="p-3 rounded bg-black/20 text-sm font-mono text-zinc-300">{item}</div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-sm font-mono text-zinc-200 break-all select-all">
+                                                                            {String(value)}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <div className="text-center text-zinc-500 py-20">No data submitted yet.</div>
+                                    )
                                 )}
                             </div>
                         </div>

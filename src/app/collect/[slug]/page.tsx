@@ -210,6 +210,54 @@ export default function CollectCredentialsPage() {
         );
     }
 
+    const renderFieldInput = (sectionId: string, field: any) => {
+        const commonClasses = "w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors text-sm";
+
+        if (field.type === 'longtext') {
+            return (
+                <textarea
+                    required={field.required}
+                    placeholder={field.placeholder}
+                    className={`${commonClasses} h-32 font-mono`}
+                    onChange={(e) => handleInputChange(sectionId, field.id, e.target.value)}
+                />
+            );
+        }
+
+        if (field.type === 'file' || field.type === 'image') {
+            return (
+                <div className="relative border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-brand-primary/30 transition-colors bg-black/30">
+                    <input
+                        type="file"
+                        // accept={field.type === 'image' ? "image/*" : "*"} 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => handleFileChange(sectionId, field.id, e)}
+                    />
+                    <div className="pointer-events-none">
+                        <p className="text-sm text-zinc-400 font-medium">Click to upload {field.type === 'image' ? 'Image' : 'File'}</p>
+                        {formData[sectionId]?.[field.id] && (
+                            <p className="text-xs text-brand-primary mt-2 font-mono">
+                                {Array.isArray(formData[sectionId][field.id])
+                                    ? `${formData[sectionId][field.id].length} file(s) selected`
+                                    : "File selected"}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <input
+                type={field.type === 'password' ? 'password' : 'text'}
+                required={field.required}
+                placeholder={field.placeholder}
+                className={commonClasses}
+                onChange={(e) => handleInputChange(sectionId, field.id, e.target.value)}
+            />
+        );
+    };
+
     // Step 2: Main Form
     return (
         <div className="min-h-screen bg-black text-white font-sans selection:bg-brand-primary/30">
@@ -229,204 +277,59 @@ export default function CollectCredentialsPage() {
                         Credential Collection
                     </h1>
                     <p className="text-zinc-500 text-lg max-w-xl mx-auto">
-                        Please provide the requested credentials for <b>{request.clientName}</b> below. data is encrypted and secure.
+                        Please provide the requested credentials for <b>{request.clientName}</b> below. Data is encrypted and secure.
                     </p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-12">
                     {/* Dynamic Sections */}
-                    {request.config?.apple && (
-                        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.74 1.18 0 2.21-.93 3.69-.93.95 0 1.95.43 2.5 1.05-2.26 1.25-1.93 4.29.28 5.43-.59 1.77-1.47 3.65-2.55 4.68zm-4.38-16c-1.12.06-2.49.69-3.05 1.78-.63 1.25.1 2.91 1.25 2.84 1.09 0 2.59-.69 3.08-1.78.58-1.28.02-2.84-1.28-2.84z" />
-                                    </svg>
+                    {Array.isArray(request.config) ? (
+                        request.config.map((section: any) => (
+                            <div key={section.id} className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
+                                <div className="flex items-center justify-between mb-8 relative z-10">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-brand-primary">
+                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-white">{section.title}</h3>
+                                            <p className="text-xs text-zinc-500 uppercase tracking-wider">{section.description || "Secure Entry"}</p>
+                                        </div>
+                                    </div>
+                                    {section.guideUrl && (
+                                        <a
+                                            href={section.guideUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 rounded-xl bg-white/5 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all flex items-center gap-2"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            View Guide
+                                        </a>
+                                    )}
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">Apple App Store</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Developer Account Access</p>
+                                <div className="space-y-6 relative z-10">
+                                    {section.fields.map((field: any) => (
+                                        <div key={field.id} className="space-y-2">
+                                            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">
+                                                {field.label} {field.required && <span className="text-brand-primary">*</span>}
+                                            </label>
+
+                                            {renderFieldInput(section.id, field)}
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Apple ID Email</label>
-                                        <input
-                                            type="email"
-                                            required
-                                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                            onChange={(e) => handleInputChange('apple', 'email', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Password</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                            onChange={(e) => handleInputChange('apple', 'password', e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">2FA / Security Code (if usually required)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                        placeholder="Optional - or provide recovery key"
-                                        onChange={(e) => handleInputChange('apple', '2fa_note', e.target.value)}
-                                    />
-                                </div>
-                            </div>
+                        ))
+                    ) : (
+                        // Fallback for old requests
+                        <div className="p-8 text-center border border-white/10 rounded-2xl">
+                            <p className="text-zinc-500">Legacy request format detected. Please contact support.</p>
                         </div>
                     )}
-
-                    {request.config?.google && (
-                        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
-                                    {/* Google G Icon equivalent */}
-                                    <span className="text-2xl font-bold text-white">G</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">Google Play Console</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Developer Account</p>
-                                </div>
-                            </div>
-                            <div className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Google Email</label>
-                                        <input
-                                            type="email"
-                                            required
-                                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                            onChange={(e) => handleInputChange('google', 'email', e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Password</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                            onChange={(e) => handleInputChange('google', 'password', e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-3">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Service Account JSON (Optional)</label>
-                                    <div className="relative border-2 border-dashed border-white/10 rounded-xl p-8 text-center hover:border-brand-primary/30 transition-colors bg-black/30">
-                                        <input
-                                            type="file"
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                            onChange={(e) => handleFileChange('google', 'service_account', e)}
-                                        />
-                                        <p className="text-sm text-zinc-400 font-medium">Click to upload .json file</p>
-                                        {formData.google?.service_account && <p className="text-xs text-brand-primary mt-2">File selected</p>}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {request.config?.mongo && (
-                        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-green-500">
-                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">MongoDB Atlas</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Database Access</p>
-                                </div>
-                            </div>
-                            <div className="space-y-6">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Connection String (URI)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors font-mono text-sm"
-                                        placeholder="mongodb+srv://..."
-                                        onChange={(e) => handleInputChange('mongo', 'uri', e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {request.config?.googleEmail && (
-                        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
-                                    <span className="text-lg font-bold text-white">@</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">Google Email</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Workspace Account</p>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Email Address</label>
-                                    <input
-                                        type="email"
-                                        required
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                        onChange={(e) => handleInputChange('googleEmail', 'email', e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Password</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors"
-                                        onChange={(e) => handleInputChange('googleEmail', 'password', e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {request.config?.cloudStorage && (
-                        <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 md:p-10 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-brand-primary/5 transition-colors"></div>
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white">Cloud Storage</h3>
-                                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Access Keys or Config</p>
-                                </div>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Sensitive Data / Config JSON</label>
-                                    <textarea
-                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-brand-primary/50 focus:outline-none transition-colors h-32 font-mono text-sm"
-                                        placeholder="Paste JSON keys or access details here..."
-                                        onChange={(e) => handleInputChange('cloudStorage', 'config', e.target.value)}
-                                    ></textarea>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wide ml-1">Key File (Optional)</label>
-                                    <input
-                                        type="file"
-                                        className="w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-white/10 file:text-white hover:file:bg-white/20"
-                                        onChange={(e) => handleFileChange('cloudStorage', 'keyFile', e)}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
 
                     <div className="pt-8">
                         <button

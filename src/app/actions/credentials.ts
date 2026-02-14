@@ -153,3 +153,23 @@ export async function submitCredentialData(slug: string, data: CredentialRequest
         return { success: false, message: error.message };
     }
 }
+// Admin Action: Update request config
+export async function updateCredentialRequestConfig(id: string, config: CredentialRequestConfig) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+        const request = await prisma.credentialRequest.update({
+            where: { id },
+            data: {
+                config: config as any,
+            },
+        });
+        return { success: true, request };
+    } catch (error: any) {
+        console.error("Failed to update credential request config:", error);
+        return { success: false, message: error.message };
+    }
+}
