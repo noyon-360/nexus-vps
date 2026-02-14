@@ -2,6 +2,13 @@
 
 import { Client } from "ssh2";
 import { SshSessionManager } from "@/lib/ssh-session-manager";
+import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+
+export interface VpsData extends VpsConnectionData {
+  clientName: string;
+}
 
 export interface VpsConnectionData {
   ip: string;
@@ -42,6 +49,10 @@ export interface SystemStats {
 }
 
 export async function testVpsConnection(formData: VpsConnectionData): Promise<ConnectionResult> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
   const { ip, user, password } = formData;
   
   return new Promise((resolve) => {
@@ -65,6 +76,10 @@ export async function testVpsConnection(formData: VpsConnectionData): Promise<Co
 }
 
 export async function getSystemStats(config: VpsConnectionData): Promise<{ success: boolean; stats?: SystemStats; error?: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, error: "Unauthorized" };
+  }
   const { ip, user, password } = config;
 
   try {
@@ -255,6 +270,10 @@ export interface Pm2Process {
 }
 
 export async function getPm2ProcessInfo(config: VpsConnectionData, domainName: string): Promise<{ success: boolean; process?: Pm2Process; fullList?: Pm2Process[]; error?: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, error: "Unauthorized" };
+  }
   const { ip, user, password } = config;
 
   return new Promise((resolve) => {
@@ -333,6 +352,10 @@ export async function getPm2ProcessInfo(config: VpsConnectionData, domainName: s
 }
 
 export async function closeAllConnections(config: VpsConnectionData) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+        return { success: false, message: "Unauthorized" };
+    }
     const { ip, user } = config;
     // We want to close all sessions related to this user and IP
     // Sessions follow patterns like: stats_user@ip, deploy_user@ip_timestamp, terminal_user@ip
@@ -345,4 +368,146 @@ export async function closeAllConnections(config: VpsConnectionData) {
     SshSessionManager.closeSessionsPattern(searchPattern);
     
     return { success: true, message: "All connections closed" };
+}
+
+export async function saveVps(data: VpsData) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const userId = (session.user as any).id;
+
+  try {
+    // Check if IP already exists for this user
+    const existingVps = await prisma.vps.findUnique({
+      where: {
+        userId_ip: {
+          userId,
+          ip: data.ip,
+        },
+      },
+    });
+
+    if (existingVps) {
+      return { 
+        success: false, 
+        message: `This IP address is already registered as "${existingVps.name}".` 
+      };
+    }
+
+    const vps = await prisma.vps.create({
+      data: {
+        name: data.clientName,
+        ip: data.ip,
+        user: data.user,
+        password: data.password,
+        userId,
+      },
+    });
+
+    return { success: true, vps };
+  } catch (error: any) {
+    return { success: false, message: error.message || "Failed to save VPS" };
+  }
+}
+
+export async function getVpsList() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const userId = (session.user as any).id;
+
+  try {
+    const vpsList = await prisma.vps.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    return { success: true, vpsList };
+  } catch (error: any) {
+    return { success: false, message: error.message || "Failed to fetch VPS list" };
+  }
+}
+
+export async function updateVps(id: string, data: Partial<VpsData>) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const userId = (session.user as any).id;
+
+  try {
+    // Check if VPS exists and belongs to user
+    const existingVps = await prisma.vps.findFirst({
+      where: { id, userId },
+    });
+
+    if (!existingVps) {
+      return { success: false, message: "VPS not found or unauthorized" };
+    }
+
+    // If IP is changing, check for uniqueness
+    if (data.ip && data.ip !== existingVps.ip) {
+      const duplicateIp = await prisma.vps.findUnique({
+        where: {
+          userId_ip: {
+            userId,
+            ip: data.ip,
+          },
+        },
+      });
+
+      if (duplicateIp) {
+        return { 
+          success: false, 
+          message: `This IP address is already registered as "${duplicateIp.name}".` 
+        };
+      }
+    }
+
+    const updatedVps = await prisma.vps.update({
+      where: { id },
+      data: {
+        name: data.clientName,
+        ip: data.ip,
+        user: data.user,
+        password: data.password,
+      },
+    });
+
+    return { success: true, vps: updatedVps };
+  } catch (error: any) {
+    return { success: false, message: error.message || "Failed to update VPS" };
+  }
+}
+
+export async function deleteVps(id: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const userId = (session.user as any).id;
+
+  try {
+    // Check if VPS exists and belongs to user
+    const existingVps = await prisma.vps.findFirst({
+      where: { id, userId },
+    });
+
+    if (!existingVps) {
+      return { success: false, message: "VPS not found or unauthorized" };
+    }
+
+    await prisma.vps.delete({
+      where: { id },
+    });
+
+    return { success: true, message: "VPS deleted successfully" };
+  } catch (error: any) {
+    return { success: false, message: error.message || "Failed to delete VPS" };
+  }
 }
