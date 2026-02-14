@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  isVerified    Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  vpsList       Vps[]
+}
+
+model VerificationToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expires   DateTime
+  type      String   // 'REGISTER' | 'PASSWORD_RESET'
+  createdAt DateTime @default(now())
+
+  @@unique([email, token])
+}
+
+model Vps {
+  id        String   @id @default(cuid())
+  name      String?
+  ip        String
+  user      String
+  password  String?
+  sshKey    String?
+  userId    String
+  owner     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deploys   Deploy[]
+
+  @@unique([userId, ip])
+}
+
+model Deploy {
+  id          String   @id @default(cuid())
+  vpsId       String
+  vps         Vps      @relation(fields: [vpsId], references: [id], onDelete: Cascade)
+  appName     String
+  repoUrl     String
+  branch      String
+  port        Int
+  status      String   // 'SUCCESS' | 'FAILURE' | 'PENDING'
+  logs        String?  @db.Text
+  createdAt   DateTime @default(now())
+}

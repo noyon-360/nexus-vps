@@ -9,9 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@prisma/client": "^7.4.0",
     "@types/ssh2": "^1.15.5",
+    "bcrypt": "^6.0.0",
     "lucide-react": "^0.564.0",
     "next": "16.1.6",
+    "next-auth": "^4.24.13",
+    "nodemailer": "^7.0.13",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-resizable-panels": "^4.6.2",
@@ -20,12 +24,18 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
+    "@prisma/adapter-pg": "^7.4.0",
     "@tailwindcss/postcss": "^4",
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^20",
+    "@types/nodemailer": "^7.0.9",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "pg": "^8.18.0",
+    "prisma": "^7.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
