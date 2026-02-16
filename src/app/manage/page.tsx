@@ -41,10 +41,10 @@ function ManageContent() {
     const [isLoading, setIsLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(true);
+    const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true);
+    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
     const [showExitDialog, setShowExitDialog] = useState(false);
     const [isExiting, setIsExiting] = useState(false);
 
@@ -212,11 +212,11 @@ function ManageContent() {
                         {/* Left Panel: System Info */}
                         <Panel
                             panelRef={sidebarRef}
-                            defaultSize={30}
+                            defaultSize={20}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
-                            onResize={(size) => setIsSidebarCollapsed(size.asPercentage < 10)}
+                            onResize={(size: any) => setIsSidebarCollapsed(size === 0 || (typeof size === 'object' && size.asPercentage < 10))}
                             className={`flex flex-col transition-all duration-300 ${isSidebarCollapsed ? 'bg-white/[0.02]' : ''}`}
                         >
                             {isSidebarCollapsed ? (
@@ -414,7 +414,7 @@ function ManageContent() {
                         </PanelResizeHandle>
 
                         {/* Center Panel: Terminal & Easy Deploy */}
-                        <Panel defaultSize={50} minSize={30}>
+                        <Panel defaultSize={55} minSize={30}>
                             <PanelGroup orientation="vertical" className="h-full">
                                 {/* Easy Deploy Panel */}
                                 <Panel defaultSize={60} minSize={20} className="p-6 pb-2">
@@ -515,7 +515,7 @@ function ManageContent() {
                         {/* Right Panel: Active Processes */}
                         <Panel
                             panelRef={panelRef}
-                            defaultSize={0}
+                            defaultSize={25}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
@@ -772,6 +772,28 @@ function ManageContent() {
                     </PanelGroup>
                 </main>
             </div>
+            {/* Scrollbar and local overrides */}
+            <style jsx global>{`
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 4px;
+                    height: 4px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: rgba(255, 255, 255, 0.02);
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: rgba(246, 148, 77, 0.15);
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: rgba(246, 148, 77, 0.3);
+                }
+                /* Firefox */
+                .custom-scrollbar {
+                    scrollbar-width: thin;
+                    scrollbar-color: rgba(246, 148, 77, 0.15) rgba(255, 255, 255, 0.02);
+                }
+            `}</style>
         </div>
     );
 }
