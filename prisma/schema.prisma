@@ -7,18 +7,21 @@ datasource db {
 }
 
 model User {
-  id                String             @id @default(cuid())
-  email             String             @unique
-  password          String
-  name              String?
-  isVerified        Boolean            @default(false)
-  image             String?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  clients           Client[]
-  credentialPresets CredentialPreset[]
-  systemSettings    SystemSettings?
-  vpsList           Vps[]
+  id                     String                   @id @default(cuid())
+  email                  String                   @unique
+  password               String
+  name                   String?
+  isVerified             Boolean                  @default(false)
+  image                  String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  clients                Client[]
+  credentialPresets      CredentialPreset[]
+  systemSettings         SystemSettings?
+  vpsList                Vps[]
+  ownedOrganizations     Organization[]           @relation("OrganizationOwner")
+  organizationMemberships OrganizationMember[]
+  sentInvitations        OrganizationInvitation[] @relation("SentInvitations")
 }
 
 model CredentialPreset {
@@ -113,4 +116,51 @@ model SystemSettings {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+
+model Organization {
+  id          String                  @id @default(cuid())
+  name        String
+  slug        String                  @unique
+  description String?
+  dbUrl       String
+  ownerId     String
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  owner       User                    @relation("OrganizationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  members     OrganizationMember[]
+  invitations OrganizationInvitation[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String       // "OWNER", "ADMIN", "MEMBER"
+  joinedAt       DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model OrganizationInvitation {
+  id            String    @id @default(cuid())
+  organizationId String
+  invitedEmail  String
+  invitedById   String
+  role          String    @default("MEMBER")
+  token         String    @unique
+  status        String    @default("PENDING") // PENDING, ACCEPTED, REJECTED, CANCELLED
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy     User         @relation("SentInvitations", fields: [invitedById], references: [id])
+
+  @@unique([organizationId, invitedEmail])
 }

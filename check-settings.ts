@@ -10,7 +10,7 @@ async function main() {
             include: { systemSettings: true }
         });
         console.log("\nUsers and their settings:");
-        console.log(JSON.stringify(users.map(u => ({ email: u.email, settings: u.systemSettings })), null, 2));
+        console.log(JSON.stringify(users.map((u: any) => ({ email: u.email, settings: u.systemSettings })), null, 2));
     } catch (error) {
         console.error("Error checking settings:", error);
     } finally {

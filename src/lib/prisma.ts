@@ -1,32 +1,30 @@
-// Forced refresh comment
-import { PrismaClient } from '@prisma/client';  // adjust relative path
-import { Pool } from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 const prismaClientSingleton = () => {
   const connectionString = process.env.DATABASE_URL;
 
   if (!connectionString) {
-    throw new Error('DATABASE_URL is not set');
+    throw new Error("DATABASE_URL is not set");
   }
 
-  const pool = new Pool({ connectionString });           // handles pooling
-  const adapter = new PrismaPg(pool);                    // adapter translates
+  const pool = new Pool({ connectionString });
+  const adapter = new PrismaPg(pool);
 
   return new PrismaClient({
-    adapter,                                             // ← key in Prisma 7+
-    // log: ['query', 'info', 'warn', 'error'],         // optional for debugging
+    adapter,
   });
 };
 
 declare global {
-  var prismaGlobal: undefined | ReturnType<typeof prismaClientSingleton>;
+  var prisma: undefined | ReturnType<typeof prismaClientSingleton>;
 }
 
-const prisma = globalThis.prismaGlobal ?? prismaClientSingleton();
+const prisma = (globalThis.prisma ?? prismaClientSingleton()) as any;
 
-if (process.env.NODE_ENV !== 'production') {
-  globalThis.prismaGlobal = prisma;
+if (process.env.NODE_ENV !== "production") {
+  globalThis.prisma = prisma;
 }
 
-export default prisma; 
+export default prisma;
