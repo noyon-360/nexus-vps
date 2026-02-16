@@ -1,6 +1,7 @@
 "use server";
 
 import prisma from "@/lib/prisma"; // Forced refresh
+import { getDynamicPrisma } from "@/lib/dynamic-db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -43,7 +44,8 @@ export async function createCredentialRequest(clientName: string, config: Creden
     }
 
     try {
-        const request = await prisma.credentialRequest.create({
+        const db = await getDynamicPrisma();
+        const request = await db.credentialRequest.create({
             data: {
                 clientName,
                 config: config as any,
@@ -72,6 +74,7 @@ export async function getAllCredentialRequests(search?: string, page: number = 1
     }
 
     try {
+        const db = await getDynamicPrisma();
         const skip = (page - 1) * pageSize;
 
         const where: any = {};
@@ -83,13 +86,13 @@ export async function getAllCredentialRequests(search?: string, page: number = 1
         }
 
         const [requests, total] = await Promise.all([
-            prisma.credentialRequest.findMany({
+            db.credentialRequest.findMany({
                 where,
                 skip,
                 take: pageSize,
                 orderBy: { createdAt: "desc" },
             }),
-            prisma.credentialRequest.count({ where }),
+            db.credentialRequest.count({ where }),
         ]);
 
         return {
@@ -113,7 +116,8 @@ export async function deleteCredentialRequest(id: string) {
     }
 
     try {
-        await prisma.credentialRequest.delete({
+        const db = await getDynamicPrisma();
+        await db.credentialRequest.delete({
             where: { id },
         });
         return { success: true };
@@ -126,7 +130,8 @@ export async function deleteCredentialRequest(id: string) {
 // Public Action (Client View): Get request by slug to render form
 export async function getCredentialRequestBySlug(slug: string) {
     try {
-        const request = await prisma.credentialRequest.findUnique({
+        const db = await getDynamicPrisma();
+        const request = await db.credentialRequest.findUnique({
             where: { slug },
         });
 
@@ -154,7 +159,8 @@ export async function getCredentialRequestBySlug(slug: string) {
 // Public Action (Client View): Submit data
 export async function submitCredentialData(slug: string, data: CredentialRequestData, status?: string) {
     try {
-        const request = await prisma.credentialRequest.findUnique({
+        const db = await getDynamicPrisma();
+        const request = await db.credentialRequest.findUnique({
             where: { slug },
         });
 
@@ -169,7 +175,7 @@ export async function submitCredentialData(slug: string, data: CredentialRequest
         // If the client explicitly clicks "Submit Securely", status becomes "SUBMITTED"
         // If they click "Save Section", we keep status "PENDING" but update data
 
-        await prisma.credentialRequest.update({
+        await db.credentialRequest.update({
             where: { slug },
             data: {
                 data: newData as any,
@@ -200,8 +206,9 @@ export async function acceptCredentialRequest(id: string) {
             return { success: false, message: "User not found" };
         }
 
+        const db = await getDynamicPrisma();
         // Get the credential request
-        const request = await prisma.credentialRequest.findUnique({
+        const request = await db.credentialRequest.findUnique({
             where: { id }
         });
 
@@ -218,7 +225,7 @@ export async function acceptCredentialRequest(id: string) {
         }
 
         // Check if a client with this name already exists
-        const existingClient = await prisma.client.findUnique({
+        const existingClient = await db.client.findUnique({
             where: { clientName: request.clientName }
         });
 
@@ -227,7 +234,7 @@ export async function acceptCredentialRequest(id: string) {
         }
 
         // Create the client record and update the request status in a transaction
-        const result = await prisma.$transaction(async (tx) => {
+        const result = await db.$transaction(async (tx: any) => {
             // Create client
             const client = await tx.client.create({
                 data: {
@@ -264,7 +271,8 @@ export async function updateCredentialRequestConfig(id: string, config: Credenti
     }
 
     try {
-        const request = await prisma.credentialRequest.update({
+        const db = await getDynamicPrisma();
+        const request = await db.credentialRequest.update({
             where: { id },
             data: {
                 config: config as any,
@@ -285,8 +293,9 @@ export async function saveCredentialPreset(name: string, config: CredentialReque
     }
 
     try {
+        const db = await getDynamicPrisma();
         const user = session.user as any;
-        const preset = await prisma.credentialPreset.create({
+        const preset = await db.credentialPreset.create({
             data: {
                 name,
                 config: config as any,
@@ -312,8 +321,9 @@ export async function getCredentialPresets() {
     }
 
     try {
+        const db = await getDynamicPrisma();
         const user = session.user as any;
-        const presets = await prisma.credentialPreset.findMany({
+        const presets = await db.credentialPreset.findMany({
             where: { userId: user.id },
             orderBy: { createdAt: "desc" },
         });
@@ -332,8 +342,9 @@ export async function updateCredentialPreset(id: string, name: string, config: C
     }
 
     try {
+        const db = await getDynamicPrisma();
         const user = session.user as any;
-        const preset = await prisma.credentialPreset.update({
+        const preset = await db.credentialPreset.update({
             where: { id, userId: user.id }, // Ensure ownership
             data: {
                 name,
@@ -360,8 +371,9 @@ export async function deleteCredentialPreset(id: string) {
     }
 
     try {
+        const db = await getDynamicPrisma();
         const user = session.user as any;
-        await prisma.credentialPreset.delete({
+        await db.credentialPreset.delete({
             where: { id, userId: user.id }, // Ensure ownership
         });
         return { success: true };
@@ -401,14 +413,16 @@ export async function getAllClients(search?: string, page: number = 1, pageSize:
             };
         }
 
+        const db = await getDynamicPrisma();
+
         const [clients, total] = await Promise.all([
-            prisma.client.findMany({
+            db.client.findMany({
                 where,
                 skip,
                 take: pageSize,
                 orderBy: { createdAt: "desc" },
             }),
-            prisma.client.count({ where }),
+            db.client.count({ where }),
         ]);
 
         return {
@@ -440,7 +454,8 @@ export async function getClientById(id: string) {
             return { success: false, message: "User not found" };
         }
 
-        const client = await prisma.client.findUnique({
+        const db = await getDynamicPrisma();
+        const client = await db.client.findUnique({
             where: { id, userId: user.id }, // Ensure ownership
         });
 
@@ -475,8 +490,9 @@ export async function createClient(
             return { success: false, message: "User not found" };
         }
 
+        const db = await getDynamicPrisma();
         // Check if a client with this name already exists
-        const existingClient = await prisma.client.findUnique({
+        const existingClient = await db.client.findUnique({
             where: { clientName }
         });
 
@@ -485,7 +501,7 @@ export async function createClient(
         }
 
         // Also check if there's a pending/submitted request with this name
-        const existingRequest = await prisma.credentialRequest.findUnique({
+        const existingRequest = await db.credentialRequest.findUnique({
             where: { clientName }
         });
 
@@ -493,7 +509,7 @@ export async function createClient(
             return { success: false, message: "A credential request with this name already exists" };
         }
 
-        const client = await prisma.client.create({
+        const client = await db.client.create({
             data: {
                 clientName,
                 credentials: credentials as any,
@@ -531,8 +547,9 @@ export async function updateClient(
             return { success: false, message: "User not found" };
         }
 
+        const db = await getDynamicPrisma();
         // Get the current client to check ownership
-        const currentClient = await prisma.client.findUnique({
+        const currentClient = await db.client.findUnique({
             where: { id, userId: user.id }
         });
 
@@ -542,7 +559,7 @@ export async function updateClient(
 
         // If client name is changing, check for uniqueness
         if (clientName !== currentClient.clientName) {
-            const existingClient = await prisma.client.findUnique({
+            const existingClient = await db.client.findUnique({
                 where: { clientName }
             });
 
@@ -550,7 +567,7 @@ export async function updateClient(
                 return { success: false, message: "A client with this name already exists" };
             }
 
-            const existingRequest = await prisma.credentialRequest.findUnique({
+            const existingRequest = await db.credentialRequest.findUnique({
                 where: { clientName }
             });
 
@@ -559,7 +576,7 @@ export async function updateClient(
             }
         }
 
-        const client = await prisma.client.update({
+        const client = await db.client.update({
             where: { id, userId: user.id },
             data: {
                 clientName,
@@ -591,7 +608,8 @@ export async function deleteClient(id: string) {
             return { success: false, message: "User not found" };
         }
 
-        await prisma.client.delete({
+        const db = await getDynamicPrisma();
+        await db.client.delete({
             where: { id, userId: user.id }, // Ensure ownership
         });
 
