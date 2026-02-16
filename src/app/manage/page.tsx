@@ -41,7 +41,7 @@ function ManageContent() {
     const [isLoading, setIsLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
+    const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(true);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
     const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true);
@@ -107,7 +107,6 @@ function ManageContent() {
         setIsDeploying(true);
         setDeployStats(null);
         setActiveRightTab('console'); // Auto-switch to console
-        if (panelRef.current) panelRef.current.expand();
     };
 
     const handleDeployComplete = (result: any) => {
@@ -516,11 +515,11 @@ function ManageContent() {
                         {/* Right Panel: Active Processes */}
                         <Panel
                             panelRef={panelRef}
-                            defaultSize={20}
+                            defaultSize={0}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
-                            onResize={(size) => setIsProcessesCollapsed(size.asPercentage < 10)}
+                            onResize={(size: any) => setIsProcessesCollapsed(size === 0 || size < 10)}
                             className={`flex flex-col transition-all duration-300 ${isProcessesCollapsed ? 'bg-white/[0.02]' : ''}`}
                         >
                             {isProcessesCollapsed ? (

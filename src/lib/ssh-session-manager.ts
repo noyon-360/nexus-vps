@@ -109,8 +109,28 @@ export class SshSessionManager {
         const conn = await this.getConnection(id, config);
 
         return new Promise((resolve, reject) => {
+            const onError = (err: Error) => {
+                cleanup();
+                reject(err);
+            };
+            const onClose = () => {
+                cleanup();
+                reject(new Error("SSH connection closed unexpectedly during command execution"));
+            };
+
+            const cleanup = () => {
+                conn.client.removeListener("error", onError);
+                conn.client.removeListener("close", onClose);
+            };
+
+            conn.client.on("error", onError);
+            conn.client.on("close", onClose);
+
             conn.client.exec(command, (err, stream) => {
-                if (err) return reject(err);
+                if (err) {
+                    cleanup();
+                    return reject(err);
+                }
 
                 let output = "";
                 let error = "";
@@ -119,7 +139,8 @@ export class SshSessionManager {
                 stream.on("stderr", (data: Buffer) => { error += data.toString(); });
 
                 stream.on("close", (code: any, signal: any) => {
-                    resolve(output + error); // Combine for simplicity, or handle error separately
+                    cleanup();
+                    resolve(output + error);
                 });
             });
         });

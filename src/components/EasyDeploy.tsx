@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Server, Globe, Cpu, MemoryStick, Activity, Terminal, Terminal as TerminalIcon, Shield, Search, ExternalLink, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, AlertCircle, Loader2, GitBranch, Key, Square, Github, Play, ShieldAlert } from 'lucide-react';
+import { Server, Globe, Cpu, MemoryStick, Activity, Terminal, Terminal as TerminalIcon, Shield, Search, ExternalLink, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, AlertCircle, Loader2, GitBranch, Key, Square, Github, Play, ShieldAlert, ChevronRight } from 'lucide-react';
 import { DeployConfig, DeployResult, DeployStep } from "@/types/deploy";
 import { deployProject } from "@/app/actions/deploy";
 import { VpsConnectionData } from "@/app/actions/vps";
@@ -161,9 +161,37 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
         }
     };
 
+    // Auto-fetch branches when URL changes manually (if connected)
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (formData.repoUrl && isConnected && githubToken) {
+                try {
+                    // Extract owner and name
+                    const cleanUrl = formData.repoUrl.replace('.git', '').replace(/\/$/, '');
+                    const parts = cleanUrl.split('/');
+                    const name = parts[parts.length - 1];
+                    const owner = parts[parts.length - 2];
+
+                    if (owner && name) {
+                        setIsLoadingBranches(true);
+                        const result = await import("@/app/actions/github").then(mod => mod.fetchGithubBranches(githubToken, owner, name));
+                        if (result && result.success) {
+                            setBranches((result as any).branches || []);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Auto branch fetch failed", e);
+                } finally {
+                    setIsLoadingBranches(false);
+                }
+            }
+        }, 800); // Debounce for typing
+
+        return () => clearTimeout(timer);
+    }, [formData.repoUrl, isConnected, githubToken]);
+
     const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const [activeTab, setActiveTab] = useState<'activity' | 'console'>('activity');
 
     // Auto-fill commands based on Framework
     // ensuring we don't overwrite user changes if they switch back and forth too much, 
@@ -206,63 +234,87 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
         setIsLoading(true);
         setLogs([]);
         setSteps(prev => prev.map(s => ({ ...s, status: 'pending', details: undefined })));
-        setDeployId(null); // Reset
+        setDeployId(null);
 
         if (onDeployStart) onDeployStart();
 
+        // Validation
+        if (!formData.repoUrl || !formData.repoUrl.includes("github.com")) {
+            const msg = "Please enter a valid GitHub repository URL (e.g., https://github.com/owner/repo)";
+            setLogs(prev => [...prev, `[VALIDATION ERROR] ${msg}`]);
+            setIsLoading(false);
+            if (onDeployComplete) onDeployComplete({ success: false, message: msg, logs: [], steps: [] });
+            return;
+        }
+
+        if (!formData.appName || formData.appName.length < 3) {
+            const msg = "App name must be at least 3 characters long";
+            setLogs(prev => [...prev, `[VALIDATION ERROR] ${msg}`]);
+            setIsLoading(false);
+            if (onDeployComplete) onDeployComplete({ success: false, message: msg, logs: [], steps: [] });
+            return;
+        }
+
         try {
-            const { deployProject } = await import("@/app/actions/deploy");
+            const { initDeployment, deployProject } = await import("@/app/actions/deploy");
+
+            // Phase 1: Initialize
+            const init = await initDeployment(config, formData);
+            if (!init.success || !init.deployId) {
+                throw new Error(init.message || "Failed to initialize deployment");
+            }
+
+            // Immediately start polling
+            setDeployId(init.deployId);
+
+            // Phase 2: Execute
             const result = await deployProject(config, {
                 ...formData,
-                branch: formData.branch, // Use formData.branch as selectedBranch is not defined
-                authType: 'oauth' // Assuming oauth if token is present from GitHub integration
-            });
+                authType: formData.token ? 'oauth' : (formData.gitUsername ? 'userpass' : 'token')
+            }, init.deployId);
 
-            if (result.success) {
-                if (result.deployId) setDeployId(result.deployId);
-                // If no deployId (old logic or error), we rely on result.logs/steps which are final
-                if (!result.deployId) {
-                    setLogs(result.logs);
-                    setSteps(result.steps as DeployStep[]); // Cast to DeployStep[]
-                    setIsLoading(false);
-                }
-                if (onDeployComplete) onDeployComplete(result);
-                if (onSuccess) onSuccess();
-            } else {
-                setLogs(result.logs);
-                setSteps(result.steps as DeployStep[]); // Cast to DeployStep[]
-                alert("Deployment Failed: " + result.message);
-                setIsLoading(false);
-                if (onDeployComplete) onDeployComplete(result);
+            if (!result.success) {
+                // Polling will handle the failure state usually, but we handle it here too for immediate feedback
+                console.error("Deployment failed", result.message);
             }
+
+            if (onDeployComplete) onDeployComplete(result);
         } catch (error: any) {
-            alert("Deployment Error: " + error.message);
+            console.error("Deployment Error:", error);
+            setLogs(prev => [...prev, `[ERROR] ${error.message}`]);
             setIsLoading(false);
-            const errorResult = {
+            if (onDeployComplete) onDeployComplete({
                 success: false,
                 message: error.message,
-                logs: ["Deployment failed due to client-side error."],
-                steps: []
-            };
-            if (onDeployComplete) onDeployComplete(errorResult);
-        } finally {
-            setIsLoading(false);
+                logs: logs,
+                steps: steps
+            });
         }
     };
 
     const handleStop = async () => {
-        if (!deployId) return;
+        console.log("handleStop clicked. deployId:", deployId);
+        if (!deployId) {
+            alert("Nothing to stop (No active deployment ID found)");
+            return;
+        }
         if (!confirm("Are you sure you want to stop and cleanup this deployment?")) return;
 
         setIsStopping(true);
         setLogs(prev => [...prev, "[SYSTEM] Stopping deployment and cleaning up VPS..."]);
 
         try {
+            console.log("Calling stopDeployment for:", deployId);
             const { stopDeployment } = await import("@/app/actions/deploy");
-            await stopDeployment(config, deployId, formData.appName);
+            const result = await stopDeployment(config, deployId, formData.appName);
+            console.log("stopDeployment result:", result);
+            if (!result.success) {
+                alert("Failed to stop: " + result.message);
+            }
             // Polling will pick up the status change
-        } catch (e) {
+        } catch (e: any) {
             console.error("Stop failed", e);
+            setLogs(prev => [...prev, `[ERROR] Failed to send stop signal: ${e.message}`]);
             setIsStopping(false);
         }
     };
@@ -441,23 +493,32 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
                                     <Loader2 className="animate-spin text-zinc-500" size={14} />
                                     <span className="text-xs text-zinc-500">Fetching branches...</span>
                                 </div>
-                            ) : (branches.length > 0 && isConnected) ? (
-                                <select
-                                    name="branch"
-                                    value={formData.branch} onChange={handleChange}
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none"
-                                >
-                                    {branches.map((b: any) => (
-                                        <option key={b.name} value={b.name}>{b.name}</option>
-                                    ))}
-                                </select>
+                            ) : (branches.length > 0) ? (
+                                <div className="relative group/select">
+                                    <GitBranch className="absolute left-3 top-2.5 text-zinc-600 group-focus-within/select:text-brand-primary transition-colors" size={14} />
+                                    <select
+                                        name="branch"
+                                        value={formData.branch} onChange={handleChange}
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-8 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none cursor-pointer"
+                                    >
+                                        {branches.map((b: any) => (
+                                            <option key={b.name} value={b.name}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute right-3 top-3 pointer-events-none text-zinc-600">
+                                        <ChevronRight size={14} className="rotate-90" />
+                                    </div>
+                                </div>
                             ) : (
-                                <input
-                                    name="branch"
-                                    value={formData.branch} onChange={handleChange}
-                                    placeholder="main"
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
-                                />
+                                <div className="relative">
+                                    <GitBranch className="absolute left-3 top-2.5 text-zinc-600" size={14} />
+                                    <input
+                                        name="branch"
+                                        value={formData.branch} onChange={handleChange}
+                                        placeholder="main"
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
+                                    />
+                                </div>
                             )}
                         </div>
                     </div>

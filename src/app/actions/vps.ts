@@ -180,9 +180,19 @@ export async function getSystemStats(config: VpsConnectionData): Promise<{ succe
     // Parse PM2
     let pm2Processes: Pm2Process[] = [];
     try {
-      pm2Processes = JSON.parse(pm2Json);
+      // Find JSON array in output if it contains extra text
+      const start = pm2Json.indexOf("[");
+      const end = pm2Json.lastIndexOf("]");
+      if (start !== -1 && end !== -1) {
+        const cleanJson = pm2Json.substring(start, end + 1);
+        pm2Processes = JSON.parse(cleanJson);
+      } else if (pm2Json === "[]") {
+        pm2Processes = [];
+      } else {
+        console.error("Invalid PM2 output:", pm2Json);
+      }
     } catch (e) {
-      console.error("PM2 Parse Error:", e);
+      console.error("PM2 Parse Error:", e, "Payload:", pm2Json);
     }
 
     // Parse ports from ss/netstat output

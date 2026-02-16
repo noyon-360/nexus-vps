@@ -4,7 +4,48 @@ import { SshSessionManager } from "@/lib/ssh-session-manager";
 import { DeployConfig, DeployResult } from "@/types/deploy";
 import { VpsConnectionData } from "@/app/actions/vps";
 
-export async function deployProject(config: VpsConnectionData, deployConfig: DeployConfig): Promise<DeployResult> {
+export async function initDeployment(config: VpsConnectionData, deployConfig: DeployConfig) {
+    const prisma = (await import("@/lib/prisma")).default;
+    const { ip, user } = config;
+
+    // Sanitize app name
+    const appName = deployConfig.appName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+
+    const vps = await prisma.vps.findFirst({
+        where: { ip: ip, user: user }
+    });
+
+    if (!vps) {
+        return { success: false, message: "VPS not found in database. Please add the VPS first." };
+    }
+
+    const steps = [
+        { name: "System Setup", status: "pending" },
+        { name: "Directory & Backup", status: "pending" },
+        { name: "Clone Repository", status: "pending" },
+        { name: "Install & Build", status: "pending" },
+        { name: "Start Application", status: "pending" },
+        { name: "Configure Nginx", status: "pending" },
+        { name: "SSL Certificate", status: "pending" }
+    ];
+
+    const deploy = await prisma.deploy.create({
+        data: {
+            vpsId: vps.id,
+            appName: appName,
+            repoUrl: deployConfig.repoUrl,
+            branch: deployConfig.branch,
+            port: parseInt(deployConfig.port) || 3000,
+            status: 'RUNNING',
+            logs: `Initializing deployment for ${appName}...\n`,
+            steps: steps
+        }
+    });
+
+    return { success: true, deployId: deploy.id, message: "Initialized" };
+}
+
+export async function deployProject(config: VpsConnectionData, deployConfig: DeployConfig, existingDeployId?: string): Promise<DeployResult> {
     const { ip, user, password } = config;
     let {
         appName, repoUrl, branch, token,
@@ -15,7 +56,6 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 
     // Sanitize app name
     appName = appName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-    const sessionId = `deploy_${user}@${ip}_${Date.now()}`;
 
     // Determine Home Directory
     const homeDir = user === 'root' ? '/root' : `/home/${user}`;
@@ -23,16 +63,9 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
     // Database Integration
     const prisma = (await import("@/lib/prisma")).default;
 
-    // Find VPS ID (Assuming IP + User is unique enough context, or passed in config usually)
-    // We try to find the VPS attached to this user
-    // Ideally config would have ID, but we'll lookup by IP for now
-    const vps = await prisma.vps.findFirst({
-        where: { ip: ip, user: user }
-    });
+    let deployRecordId = existingDeployId || null;
 
-    let deployRecordId: string | null = null;
-
-    // Initialize Steps
+    // Initial steps if not provided
     const steps: any[] = [
         { name: "System Setup", status: "pending" },
         { name: "Directory & Backup", status: "pending" },
@@ -43,32 +76,41 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
         { name: "SSL Certificate", status: "pending" }
     ];
 
-    if (vps) {
-        const deploy = await prisma.deploy.create({
-            data: {
-                vpsId: vps.id,
-                appName: appName,
-                repoUrl: repoUrl,
-                branch: branch,
-                port: parseInt(port) || 3000,
-                status: 'RUNNING',
-                logs: `Starting deployment for ${appName}...\n`,
-                steps: steps
-            }
+    if (!deployRecordId) {
+        // Fallback for direct calls
+        const vps = await prisma.vps.findFirst({
+            where: { ip: ip, user: user }
         });
-        deployRecordId = deploy.id;
+        if (vps) {
+            const deploy = await prisma.deploy.create({
+                data: {
+                    vpsId: vps.id,
+                    appName: appName,
+                    repoUrl: repoUrl,
+                    branch: branch,
+                    port: parseInt(port) || 3000,
+                    status: 'RUNNING',
+                    logs: `Starting deployment for ${appName}...\n`,
+                    steps: steps
+                }
+            });
+            deployRecordId = deploy.id;
+        }
     }
+
+    if (!deployRecordId) throw new Error("Failed to initialize deployment record");
+    const sessionId = `deploy_${deployRecordId}`;
 
     const logs: string[] = [`Starting deployment for ${appName}...`];
 
-    const updateDB = async (status?: string, newLogs?: string) => {
+    const updateDB = async (status?: string) => {
         if (!deployRecordId) return;
         try {
             await prisma.deploy.update({
                 where: { id: deployRecordId },
                 data: {
                     status: status || 'RUNNING',
-                    steps: steps, // Prisma handles Json automaticlaly
+                    steps: steps,
                     logs: logs.join('\n')
                 }
             });
@@ -125,6 +167,9 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
         const dirStatus = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, checkDirCmd);
 
         if (dirStatus.trim() === "EXISTS") {
+            // Check if we are redeploying (matching repo URL and branch) or if we should backup
+            // For now, if it exists, we backup to avoid overwriting unless we implement a "hot update"
+            // But usually users want a fresh deploy.
             const timestamp = Math.floor(Date.now() / 1000);
             const backupDir = `${baseProjectDir}_backup_${timestamp}`;
             log(`Backing up existing project to ${backupDir}...`);
@@ -162,19 +207,25 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
             // 3. Add to GitHub
             // Extract owner and repo from URL
             // Expected format: https://github.com/owner/repo or https://github.com/owner/repo.git
+            console.log(`[DEPLOY] Parsing repo URL: ${repoUrl}`);
             const cleanUrl = repoUrl.replace('.git', '').replace(/\/$/, '');
             const parts = cleanUrl.split('/'); // [https:, , github.com, owner, repo]
             const repoName = parts[parts.length - 1];
             const ownerName = parts[parts.length - 2];
 
+            console.log(`[DEPLOY] Parsed: owner=${ownerName}, repo=${repoName}`);
+            console.log(`[DEPLOY] Token length: ${token.length}, Safe prefix: ${token.substring(0, 4)}...`);
+
             if (ownerName && repoName) {
                 const { addDeployKey } = await import("./github");
                 const keyResult = await addDeployKey(token, ownerName, repoName, publicKey.trim(), `NexusVPS - ${appName} (${ip})`);
                 if (!keyResult.success) {
+                    console.error(`[DEPLOY] GitHub Error: ${keyResult.message}`);
                     throw new Error(`Failed to add deploy key to GitHub: ${keyResult.message}`);
                 }
                 log("Deploy Key added to GitHub successfully.");
             } else {
+                console.error(`[DEPLOY] Failed to parse URL parts: ${parts}`);
                 throw new Error("Could not parse owner/repo from URL for Deploy Key");
             }
 
@@ -187,12 +238,13 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
             // We need to ensure known_hosts has github.com, so we scan it first
             await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `ssh-keyscan github.com >> ${homeDir}/.ssh/known_hosts`);
 
-            const cloneCmd = `GIT_SSH_COMMAND='ssh -i ${keyPath} -o IdentitiesOnly=yes' git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir}`;
+            const cloneCmd = `GIT_SSH_COMMAND='ssh -i ${keyPath} -o IdentitiesOnly=yes' git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir} 2>&1`;
             const cloneOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cloneCmd);
 
             if (cloneOutput.toLowerCase().includes("fatal") || cloneOutput.toLowerCase().includes("error")) {
+                log(`Clone output: ${cloneOutput}`);
                 if (cloneOutput.includes("denied")) throw new Error("Git Access Denied. Deploy Key might not have triggered correctly.");
-                // throw new Error(`Git Clone failed: ${cloneOutput}`);
+                throw new Error(`Git Clone failed: ${cloneOutput}`);
             }
 
         } else {
@@ -207,19 +259,32 @@ export async function deployProject(config: VpsConnectionData, deployConfig: Dep
 
             log(`Cloning repository (${branch})...`);
             // Clone into current dir (.) inside baseProjectDir
-            const cloneCmd = `git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir}`;
+            const cloneCmd = `git clone -b ${branch} ${repoAuthUrl} ${baseProjectDir} 2>&1`;
             const cloneOutput = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cloneCmd);
 
             if (cloneOutput.toLowerCase().includes("fatal") || cloneOutput.toLowerCase().includes("error")) {
+                log(`Clone output: ${cloneOutput}`);
                 if (cloneOutput.includes("Authentication failed")) throw new Error("Git Authentication failed.");
                 if (cloneOutput.includes("Repository not found")) throw new Error("Repository not found.");
-                // throw new Error(`Git Clone failed: ${cloneOutput}`); // git stderr is noisy, be careful
+                throw new Error(`Git Clone failed: ${cloneOutput}`);
             }
         }
 
         // Verify clone
-        const verifyClone = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `ls ${baseProjectDir}`);
-        if (!verifyClone) throw new Error("Clone failed: Directory is empty");
+        log(`Verifying clone in ${appDir}...`);
+        const fileCheck = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `ls -a ${appDir}`);
+
+        if (framework === 'node' || framework === 'next') {
+            if (!fileCheck.includes('package.json')) {
+                log(`Directory contents: ${fileCheck}`);
+                throw new Error(`Critical file missing: package.json not found in ${appDir}. Please check your root directory setting.`);
+            }
+            log("Verified package.json existence.");
+        } else {
+            if (!fileCheck || fileCheck.trim() === "." || fileCheck.trim() === "..") {
+                throw new Error(`Clone failed or directory is empty: ${appDir}`);
+            }
+        }
         updateStep(2, 'success');
 
         // --- Step 3: Install & Build ---
@@ -398,7 +463,7 @@ export async function manageProcess(config: VpsConnectionData, appName: string, 
     try {
         const sessionId = `${action}_${appName}_${Date.now()}`;
         const cmd = `pm2 ${action} ${appName}`;
-        console.log(`[PM2] Executing: ${cmd}`);
+        console.log(`[PM2] Executing: ${cmd} on ${ip}`);
         await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
         await SshSessionManager.executeCommand(sessionId, { ip, user, password }, `pm2 save`);
 
@@ -442,12 +507,61 @@ export async function getDeployStatus(deployId: string) {
         return { success: false, message: error.message };
     }
 }
+
+export async function getRepoBranches(config: VpsConnectionData, appName: string) {
+    const { ip, user, password } = config;
+    try {
+        const sessionId = `branches_${appName}_${Date.now()}`;
+        const appDir = `/var/www/${appName}`;
+
+        // Fetch all remote branches
+        const cmd = `cd ${appDir} && git fetch && git branch -r`;
+        const output = await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
+
+        if (!output || output.includes("fatal") || output.includes("Not a git repository")) {
+            return { success: false, branches: [] };
+        }
+
+        // Parse: origin/HEAD -> origin/main, origin/main, origin/dev
+        const branches = output.split('\n')
+            .map(b => b.trim())
+            .filter(b => b && !b.includes('->'))
+            .map(b => b.replace('origin/', ''));
+
+        return { success: true, branches: Array.from(new Set(branches)) };
+    } catch (error: any) {
+        return { success: false, message: error.message };
+    }
+}
+
+export async function switchBranch(config: VpsConnectionData, appName: string, branch: string) {
+    const { ip, user, password } = config;
+    try {
+        const sessionId = `switch_${appName}_${Date.now()}`;
+        const appDir = `/var/www/${appName}`;
+
+        // Checkout branch, pull, and restart PM2
+        const cmd = `cd ${appDir} && git fetch origin && git checkout ${branch} && git pull origin ${branch} && (npm install || true) && pm2 restart ${appName}`;
+        await SshSessionManager.executeCommand(sessionId, { ip, user, password }, cmd);
+
+        return { success: true, message: `Switched to ${branch} and restarted.` };
+    } catch (error: any) {
+        return { success: false, message: error.message };
+    }
+}
+
 export async function stopDeployment(config: VpsConnectionData, deployId: string, appName: string) {
+    console.log(`[STOP] Received request to stop deployment: ${deployId} for app: ${appName}`);
     try {
         const prisma = (await import("@/lib/prisma")).default;
 
         // 1. Mark as Cancelled in DB
         const current = await prisma.deploy.findUnique({ where: { id: deployId }, select: { logs: true } });
+        if (!current) {
+            console.error(`[STOP] Deployment ${deployId} not found`);
+            return { success: false, message: "Deployment record not found" };
+        }
+
         await prisma.deploy.update({
             where: { id: deployId },
             data: {
@@ -455,10 +569,20 @@ export async function stopDeployment(config: VpsConnectionData, deployId: string
                 logs: (current?.logs || "") + '\n[SYSTEM] Deployment cancelled by user. Cleaning up...'
             }
         });
+        console.log(`[STOP] Marked ${deployId} as CANCELLED`);
 
-        // 2. Perform Cleanup (Reusing deleteApp logic)
-        return await deleteApp(config, appName);
+        // 2. Kill Active SSH Session for this deploy
+        console.log(`[STOP] Killing SSH sessions for pattern: ${deployId}`);
+        SshSessionManager.closeSessionsPattern(deployId);
+
+        // 3. Perform Cleanup (Reusing deleteApp logic)
+        console.log(`[STOP] Starting cleanup for ${appName} on ${config.ip}...`);
+        const cleanupResult = await deleteApp(config, appName);
+        console.log(`[STOP] Cleanup result for ${appName}:`, cleanupResult);
+
+        return cleanupResult;
     } catch (error: any) {
+        console.error(`[STOP] Stop failed for ${deployId}:`, error);
         return { success: false, message: `Stop failed: ${error.message}` };
     }
 }

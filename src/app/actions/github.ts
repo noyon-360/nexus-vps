@@ -94,6 +94,7 @@ export async function fetchGithubBranches(token: string, owner: string, repo: st
             sha: branch.commit.sha
         }));
 
+        return { success: true, branches };
     } catch (error: any) {
         return { success: false, message: error.message || "Failed to fetch branches" };
     }
