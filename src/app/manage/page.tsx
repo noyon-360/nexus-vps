@@ -6,9 +6,17 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "reac
 import { getSystemStats, SystemStats, closeAllConnections } from "@/app/actions/vps";
 import dynamic from "next/dynamic";
 import { EasyDeploy } from "@/components/EasyDeploy";
+import {
+    Activity, ArrowLeft, CheckCircle2, ChevronRight, Clock, Clock3,
+    Cpu, Database, ExternalLink, Globe, LayoutDashboard, Loader2,
+    Lock, MemoryStick, MoreVertical, RefreshCw, Server, Settings,
+    Shield, Terminal as TerminalIcon, Trash2, XCircle, Search, Plus,
+    Key, GitBranch, Play, StopCircle, Square
+} from 'lucide-react';
 
 const TerminalComponent = dynamic(() => import("@/components/Terminal"), { ssr: false });
 const DomainDetailsDialog = dynamic(() => import("@/components/DomainDetailsDialog"), { ssr: false });
+const FileExplorer = dynamic(() => import("@/components/FileExplorer").then(mod => mod.FileExplorer), { ssr: false });
 
 function ManageContent() {
     const router = useRouter();
@@ -41,9 +49,10 @@ function ManageContent() {
     const [isExiting, setIsExiting] = useState(false);
 
     // Right Panel State
-    const [activeRightTab, setActiveRightTab] = useState<'activity' | 'console'>('activity');
+    const [activeRightTab, setActiveRightTab] = useState<'explorer' | 'activity' | 'console'>('explorer');
     const [deployStats, setDeployStats] = useState<any | null>(null);
     const [isDeploying, setIsDeploying] = useState(false);
+    const [isStopping, setIsStopping] = useState(false);
 
     const panelRef = useRef<any>(null);
     const sidebarRef = useRef<any>(null);
@@ -102,7 +111,11 @@ function ManageContent() {
     };
 
     const handleDeployComplete = (result: any) => {
-        setIsDeploying(false);
+        // Only stop deploying state if it's actually finished (not RUNNING)
+        if (result.message !== 'RUNNING') {
+            setIsDeploying(false);
+            setIsStopping(false);
+        }
         setDeployStats(result);
     };
 
@@ -405,7 +418,7 @@ function ManageContent() {
                         <Panel defaultSize={50} minSize={30}>
                             <PanelGroup orientation="vertical" className="h-full">
                                 {/* Easy Deploy Panel */}
-                                <Panel defaultSize={40} minSize={20} className="p-6 pb-2">
+                                <Panel defaultSize={60} minSize={20} className="p-6 pb-2">
 
                                     <EasyDeploy
                                         config={dialogConfig}
@@ -424,8 +437,8 @@ function ManageContent() {
 
                                 {/* Terminal Panel */}
                                 <Panel
-                                    defaultSize={5}
-                                    minSize={10}
+                                    defaultSize={40}
+                                    minSize={20}
                                     collapsible={true}
                                     collapsedSize={4}
                                     onResize={(size) => setIsTerminalCollapsed(size.inPixels < 100)}
@@ -543,6 +556,12 @@ function ManageContent() {
                                             {/* Tab Switcher */}
                                             <div className="flex p-1 bg-white/5 rounded-lg border border-white/5">
                                                 <button
+                                                    onClick={() => setActiveRightTab('explorer')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${activeRightTab === 'explorer' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                                >
+                                                    Explorer
+                                                </button>
+                                                <button
                                                     onClick={() => setActiveRightTab('activity')}
                                                     className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${activeRightTab === 'activity' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                                 >
@@ -565,7 +584,11 @@ function ManageContent() {
                                     </div>
 
                                     {/* Content based on Tab */}
-                                    {activeRightTab === 'activity' ? (
+                                    {activeRightTab === 'explorer' ? (
+                                        <div className="flex-grow overflow-hidden p-4">
+                                            <FileExplorer config={dialogConfig} />
+                                        </div>
+                                    ) : activeRightTab === 'activity' ? (
                                         <>
                                             {/* Process List Header & Content */}
                                             <div className="h-10 bg-white/[0.03] flex items-center px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">
@@ -609,16 +632,75 @@ function ManageContent() {
                                         /* Console View */
                                         <div className="flex-grow overflow-y-auto custom-scrollbar p-4 space-y-4">
                                             {isDeploying ? (
-                                                <div className="flex flex-col items-center justify-center h-40 gap-4 text-center">
-                                                    <div className="relative">
-                                                        <div className="w-12 h-12 rounded-full border-2 border-brand-primary/20 border-t-brand-primary animate-spin"></div>
-                                                        <div className="absolute inset-0 flex items-center justify-center">
-                                                            <div className="w-2 h-2 rounded-full bg-brand-primary animate-pulse"></div>
+                                                <div className="flex flex-col h-full bg-[#050505] rounded-xl border border-white/5 overflow-hidden">
+                                                    {/* Progress Header */}
+                                                    <div className="p-4 border-b border-white/5 bg-black/20 flex flex-col gap-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="relative">
+                                                                <div className="w-8 h-8 rounded-full border-2 border-brand-primary/20 border-t-brand-primary animate-spin"></div>
+                                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse"></div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex-grow">
+                                                                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Deploying Application...</h4>
+                                                                <p className="text-[10px] text-zinc-500">Live output from VPS</p>
+                                                            </div>
+                                                            <button
+                                                                disabled={isStopping}
+                                                                onClick={async () => {
+                                                                    if (!deployStats?.deployId) return;
+                                                                    if (!confirm("Stop and cleanup deployment?")) return;
+                                                                    setIsStopping(true);
+                                                                    try {
+                                                                        const { stopDeployment } = await import("@/app/actions/deploy");
+                                                                        await stopDeployment(dialogConfig, deployStats.deployId, deployStats.appName || "app");
+                                                                    } catch (e) {
+                                                                        console.error(e);
+                                                                        setIsStopping(false);
+                                                                    }
+                                                                }}
+                                                                className={`px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-2 ${isStopping ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            >
+                                                                {isStopping ? (
+                                                                    <div className="w-3 h-3 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin"></div>
+                                                                ) : (
+                                                                    <Square className="w-3 h-3 fill-current" />
+                                                                )}
+                                                                <span>{isStopping ? 'Stopping...' : 'Cancel'}</span>
+                                                            </button>
                                                         </div>
+
+                                                        {/* Step Indicators */}
+                                                        {deployStats?.steps && (
+                                                            <div className="flex items-center gap-1 w-full pt-2">
+                                                                {deployStats.steps.map((step: any, idx: number) => (
+                                                                    <div key={idx} className="flex-1 flex flex-col gap-1">
+                                                                        <div className={`h-1 w-full rounded-full transition-all duration-500 ${step.status === 'success' ? 'bg-green-500' :
+                                                                            step.status === 'running' ? 'bg-brand-primary animate-pulse' :
+                                                                                step.status === 'failure' ? 'bg-red-500' : 'bg-white/10'
+                                                                            }`} />
+                                                                        <span className={`text-[8px] font-bold truncate transition-colors ${step.status === 'running' ? 'text-brand-primary' :
+                                                                            step.status === 'success' ? 'text-green-500' : 'text-zinc-700'
+                                                                            }`}>{step.name}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    <div>
-                                                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Deploying...</h4>
-                                                        <p className="text-[10px] text-zinc-500 mt-1">Check the activity log for details</p>
+
+                                                    {/* Logs Re-use */}
+                                                    <div className="flex-grow p-4 overflow-y-auto custom-scrollbar font-mono text-[11px] space-y-1">
+                                                        {deployStats?.logs ? deployStats.logs.map((log: string, i: number) => (
+                                                            <div key={i} className="text-zinc-400 border-b border-white/[0.02] pb-1 mb-1 last:border-0 break-all">
+                                                                <span className="text-zinc-700 mr-3 select-none">{(i + 1).toString().padStart(3, '0')}</span>
+                                                                {log}
+                                                            </div>
+                                                        )) : (
+                                                            <div className="text-zinc-600 italic text-center py-10">Waiting for logs...</div>
+                                                        )}
+                                                        {/* Auto-scroll anchor */}
+                                                        <div ref={(el) => { if (el) el.scrollIntoView({ behavior: 'smooth' }); }} />
                                                     </div>
                                                 </div>
                                             ) : !deployStats ? (
@@ -672,10 +754,10 @@ function ManageContent() {
                                                             <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">System Logs</h4>
                                                             <span className="text-[9px] font-mono text-zinc-600">{deployStats.logs?.length || 0} lines</span>
                                                         </div>
-                                                        <div className="bg-black/50 rounded-xl border border-white/5 p-3 font-mono text-[10px] text-zinc-400 overflow-x-auto custom-scrollbar max-h-[300px]">
+                                                        <div className="bg-black/50 rounded-xl border border-white/5 p-4 font-mono text-[11px] text-zinc-400 overflow-x-auto custom-scrollbar max-h-[500px]">
                                                             {deployStats.logs && deployStats.logs.map((log: string, i: number) => (
-                                                                <div key={i} className="py-0.5 border-b border-white/5 last:border-0 whitespace-pre-wrap hover:bg-white/5 hover:text-zinc-200 transition-colors">
-                                                                    <span className="text-zinc-600 select-none mr-2">{(i + 1).toString().padStart(3, '0')}</span>
+                                                                <div key={i} className="py-1 border-b border-white/5 last:border-0 whitespace-pre-wrap hover:bg-white/5 hover:text-zinc-200 transition-colors">
+                                                                    <span className="text-zinc-600 select-none mr-3">{(i + 1).toString().padStart(3, '0')}</span>
                                                                     {log}
                                                                 </div>
                                                             ))}

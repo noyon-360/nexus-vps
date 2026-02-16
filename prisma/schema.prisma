@@ -69,6 +69,7 @@ model Deploy {
   port      Int
   status    String
   logs      String?
+  steps     Json?
   createdAt DateTime @default(now())
   vps       Vps      @relation(fields: [vpsId], references: [id], onDelete: Cascade)
 }

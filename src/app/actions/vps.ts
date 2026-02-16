@@ -224,11 +224,11 @@ export async function getSystemStats(config: VpsConnectionData): Promise<{ succe
       }
     });
 
-    // Enrich PM2 processes with detected ports
-    pm2Processes = pm2Processes.map(proc => ({
-      ...proc,
-      ports: portMap.get(proc.pid) || []
-    }));
+    // Enrich PM2 processes with detected ports and prune
+    pm2Processes = pm2Processes.map(proc => {
+      const ports = portMap.get(proc.pid) || [];
+      return prunePm2Process({ ...proc, ports });
+    });
 
     const stats: SystemStats = {
       cpu: cpuVal ? `${parseFloat(cpuVal).toFixed(1)}%` : "0%",
@@ -252,7 +252,7 @@ export interface Pm2Process {
   name: string;
   pid: number;
   pm_id: number;
-  ports?: string[]; // Detected listening ports
+  ports?: string[];
   monit: {
     memory: number;
     cpu: number;
@@ -265,9 +265,37 @@ export interface Pm2Process {
     cwd: string;
     version: string;
     node_version: string;
-    [key: string]: any;
+    exec_interpreter: string;
+    pm_exec_path: string;
+    pm_out_log_path: string;
+    pm_err_log_path: string;
   };
-  [key: string]: any;
+}
+
+function prunePm2Process(proc: any): Pm2Process {
+  return {
+    name: proc.name,
+    pid: proc.pid,
+    pm_id: proc.pm_id,
+    ports: proc.ports || [],
+    monit: {
+      memory: proc.monit?.memory || 0,
+      cpu: proc.monit?.cpu || 0,
+    },
+    pm2_env: {
+      status: proc.pm2_env?.status || 'unknown',
+      restart_time: proc.pm2_env?.restart_time || 0,
+      created_at: proc.pm2_env?.created_at || 0,
+      pm_uptime: proc.pm2_env?.pm_uptime || 0,
+      cwd: proc.pm2_env?.cwd || '',
+      version: proc.pm2_env?.version || '',
+      node_version: proc.pm2_env?.node_version || '',
+      exec_interpreter: proc.pm2_env?.exec_interpreter || '',
+      pm_exec_path: proc.pm2_env?.pm_exec_path || '',
+      pm_out_log_path: proc.pm2_env?.pm_out_log_path || '',
+      pm_err_log_path: proc.pm2_env?.pm_err_log_path || '',
+    }
+  };
 }
 
 export async function getPm2ProcessInfo(config: VpsConnectionData, domainName: string): Promise<{ success: boolean; process?: Pm2Process; fullList?: Pm2Process[]; error?: string }> {
@@ -317,7 +345,7 @@ export async function getPm2ProcessInfo(config: VpsConnectionData, domainName: s
             }
 
             const jsonStr = output.substring(start, end + 1);
-            const list: Pm2Process[] = JSON.parse(jsonStr);
+            const list: Pm2Process[] = JSON.parse(jsonStr).map(prunePm2Process);
 
             // Strategy:
             // 1. Exact match name

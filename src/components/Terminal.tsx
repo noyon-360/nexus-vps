@@ -37,7 +37,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({ host, user, encod
 
         const term = new Terminal({
             cursorBlink: true,
-            fontSize: 12,
+            fontSize: 14,
             fontFamily: '"JetBrains Mono", "Fira Code", monospace',
             theme: {
                 background: '#050505',

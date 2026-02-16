@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Terminal, Globe, Github, Server, Play, ShieldAlert } from "lucide-react";
-import { DeployConfig, DeployResult } from "@/types/deploy";
+import { useState, useEffect } from "react";
+import { Server, Globe, Cpu, MemoryStick, Activity, Terminal, Terminal as TerminalIcon, Shield, Search, ExternalLink, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, AlertCircle, Loader2, GitBranch, Key, Square, Github, Play, ShieldAlert } from 'lucide-react';
+import { DeployConfig, DeployResult, DeployStep } from "@/types/deploy";
 import { deployProject } from "@/app/actions/deploy";
 import { VpsConnectionData } from "@/app/actions/vps";
 
@@ -36,6 +36,63 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
+
+    // Real-time Logs State
+    const [logs, setLogs] = useState<string[]>([]);
+    const [steps, setSteps] = useState<any[]>([
+        { name: "System Setup", status: "pending" },
+        { name: "Directory & Backup", status: "pending" },
+        { name: "Clone Repository", status: "pending" },
+        { name: "Install & Build", status: "pending" },
+        { name: "Start Application", status: "pending" },
+        { name: "Configure Nginx", status: "pending" },
+        { name: "SSL Certificate", status: "pending" }
+    ]);
+    const [deployId, setDeployId] = useState<string | null>(null);
+    const [isStopping, setIsStopping] = useState(false);
+
+    // Polling for Real-time Logs
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (deployId) {
+            interval = setInterval(async () => {
+                try {
+                    const result = await import("@/app/actions/deploy").then(mod => mod.getDeployStatus(deployId));
+                    if (result.success) {
+                        setLogs(result.logs || []);
+                        if (result.steps) {
+                            setSteps(result.steps as any[]);
+                        }
+
+                        // Pass updates to parent if needed
+                        if (onDeployComplete) {
+                            onDeployComplete({
+                                success: result.status === 'SUCCESS',
+                                message: result.status || "Unknown",
+                                logs: result.logs || [],
+                                steps: (result.steps as any[]) || []
+                            });
+                        }
+
+                        if (result.status !== 'RUNNING') {
+                            clearInterval(interval);
+                            setIsLoading(false);
+                            setIsStopping(false);
+                            setDeployId(null); // Stop polling
+                            if (result.status === 'SUCCESS' && onSuccess) onSuccess();
+                            if (result.status === 'FAILED') alert("Deployment Failed (Check logs)");
+                            if (result.status === 'CANCELLED') {
+                                setLogs(prev => [...prev, "[SYSTEM] Deployment successfully stopped and cleaned up."]);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+        return () => clearInterval(interval);
+    }, [deployId]);
 
 
 
@@ -76,9 +133,9 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
     const handleSelectRepo = async (repo: any) => {
         setFormData(prev => ({
             ...prev,
-            repoUrl: repo.html_url,
+            repoUrl: repo.html_url || "",
             appName: repo.name,
-            branch: repo.default_branch,
+            branch: repo.default_branch || "main",
             // Guess framework
             framework:
                 repo.language === 'TypeScript' || repo.language === 'JavaScript' ? 'node' :
@@ -94,8 +151,8 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
             // Repo full_name is "owner/repo"
             const [owner, name] = repo.full_name.split('/');
             const result = await import("@/app/actions/github").then(mod => mod.fetchGithubBranches(githubToken, owner, name));
-            if (result.success) {
-                setBranches(result.branches);
+            if (result && result.success) {
+                setBranches((result as any).branches || []);
             }
         } catch (e) {
             console.error("Failed to fetch branches", e);
@@ -127,7 +184,7 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
         try {
             const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(githubToken));
             if (result.success) {
-                setRepos(result.repos);
+                setRepos(result.repos || []);
                 setIsConnected(true);
                 setFormData(prev => ({ ...prev, token: githubToken }));
             } else {
@@ -147,31 +204,66 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
 
     const handleDeploy = async () => {
         setIsLoading(true);
-        // setDeployStats(null); // Managed by parent now
-        // setActiveTab('activity'); // Managed by parent now
+        setLogs([]);
+        setSteps(prev => prev.map(s => ({ ...s, status: 'pending', details: undefined })));
+        setDeployId(null); // Reset
 
         if (onDeployStart) onDeployStart();
 
         try {
-            const result = await deployProject(config, formData);
-            // setDeployStats(result); // Managed by parent
+            const { deployProject } = await import("@/app/actions/deploy");
+            const result = await deployProject(config, {
+                ...formData,
+                branch: formData.branch, // Use formData.branch as selectedBranch is not defined
+                authType: 'oauth' // Assuming oauth if token is present from GitHub integration
+            });
 
-            if (onDeployComplete) onDeployComplete(result);
-
-            if (result.success && onSuccess) {
-                onSuccess();
+            if (result.success) {
+                if (result.deployId) setDeployId(result.deployId);
+                // If no deployId (old logic or error), we rely on result.logs/steps which are final
+                if (!result.deployId) {
+                    setLogs(result.logs);
+                    setSteps(result.steps as DeployStep[]); // Cast to DeployStep[]
+                    setIsLoading(false);
+                }
+                if (onDeployComplete) onDeployComplete(result);
+                if (onSuccess) onSuccess();
+            } else {
+                setLogs(result.logs);
+                setSteps(result.steps as DeployStep[]); // Cast to DeployStep[]
+                alert("Deployment Failed: " + result.message);
+                setIsLoading(false);
+                if (onDeployComplete) onDeployComplete(result);
             }
         } catch (error: any) {
+            alert("Deployment Error: " + error.message);
+            setIsLoading(false);
             const errorResult = {
                 success: false,
                 message: error.message,
                 logs: ["Deployment failed due to client-side error."],
                 steps: []
             };
-            // setDeployStats(errorResult); // Managed by parent
             if (onDeployComplete) onDeployComplete(errorResult);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleStop = async () => {
+        if (!deployId) return;
+        if (!confirm("Are you sure you want to stop and cleanup this deployment?")) return;
+
+        setIsStopping(true);
+        setLogs(prev => [...prev, "[SYSTEM] Stopping deployment and cleaning up VPS..."]);
+
+        try {
+            const { stopDeployment } = await import("@/app/actions/deploy");
+            await stopDeployment(config, deployId, formData.appName);
+            // Polling will pick up the status change
+        } catch (e) {
+            console.error("Stop failed", e);
+            setIsStopping(false);
         }
     };
 
@@ -232,14 +324,65 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
                                         <div className="space-y-3">
                                             <div className="flex items-center justify-between">
                                                 <h5 className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Connect GitHub</h5>
-                                                <a
-                                                    href="https://github.com/settings/tokens/new?scopes=repo&description=NexusVPS"
-                                                    target="_blank"
-                                                    className="text-[10px] text-zinc-500 hover:text-blue-400 underline decoration-dotted"
-                                                >
-                                                    Generate Token (Scope: repo)
-                                                </a>
                                             </div>
+
+                                            <button
+                                                onClick={() => {
+                                                    const width = 600;
+                                                    const height = 700;
+                                                    const left = window.screen.width / 2 - width / 2;
+                                                    const top = window.screen.height / 2 - height / 2;
+
+                                                    const popup = window.open(
+                                                        '/api/github/auth',
+                                                        'GitHub Auth',
+                                                        `width=${width},height=${height},left=${left},top=${top}`
+                                                    );
+
+                                                    const handleMessage = async (event: MessageEvent) => {
+                                                        if (event.data?.type === 'GITHUB_AUTH_SUCCESS' && event.data.token) {
+                                                            const token = event.data.token;
+                                                            setGithubToken(token);
+                                                            setIsConnecting(true);
+                                                            popup?.close();
+                                                            window.removeEventListener('message', handleMessage);
+
+                                                            // Auto-connect
+                                                            try {
+                                                                const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(token));
+                                                                if (result.success) {
+                                                                    setRepos(result.repos || []);
+                                                                    setIsConnected(true);
+                                                                    setFormData(prev => ({
+                                                                        ...prev,
+                                                                        token: token,
+                                                                        authType: 'oauth' // Set auth type to oauth for deploy key logic
+                                                                    }));
+                                                                } else {
+                                                                    alert("Failed to fetch repositories: " + result.message);
+                                                                }
+                                                            } catch (e) {
+                                                                console.error(e);
+                                                            } finally {
+                                                                setIsConnecting(false);
+                                                            }
+                                                        }
+                                                    };
+
+                                                    window.addEventListener('message', handleMessage);
+                                                }}
+                                                className="w-full bg-[#24292e] text-white px-4 py-3 rounded-lg text-xs font-bold hover:bg-[#2f363d] transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <Github size={16} />
+                                                <span>Sign in with GitHub</span>
+                                            </button>
+
+                                            <div className="relative flex items-center gap-4 py-2">
+                                                <div className="h-px bg-white/5 flex-grow"></div>
+                                                <span className="text-[10px] text-zinc-600 uppercase">OR USE TOKEN</span>
+                                                <div className="h-px bg-white/5 flex-grow"></div>
+                                            </div>
+
                                             <div className="flex gap-2">
                                                 <input
                                                     type="password"
@@ -257,7 +400,7 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
                                                 </button>
                                             </div>
                                             <p className="text-[10px] text-zinc-500">
-                                                We use this token to list your repositories and clone private projects. It is only used for this session deployment.
+                                                Sign in to auto-configure access, or provide a token manually.
                                             </p>
                                         </div>
                                     ) : (
@@ -500,18 +643,40 @@ export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete 
 
                 {/* Actions */}
                 <div className="pt-4 border-t border-white/5 space-y-4 pb-4">
-                    <button
-                        onClick={handleDeploy}
-                        disabled={isLoading || !formData.appName || !formData.repoUrl}
-                        className={`w-full py-4 rounded-xl flex items-center justify-center gap-2 font-bold tracking-wide text-sm transition-all shadow-xl ${isLoading
-                            ? 'bg-brand-primary/20 text-brand-primary cursor-not-allowed'
-                            : 'bg-gradient-to-r from-blue-600 to-brand-primary hover:from-blue-500 hover:to-brand-primary/80 text-white shadow-blue-900/20 hover:shadow-blue-900/40 transform hover:-translate-y-0.5'
-                            }`}
-                    >
-                        {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Server size={18} />}
-                        {isLoading ? "INITIALIZING DEPLOYMENT..." : "CREATE WEB SERVICE"}
-                    </button>
-
+                    {isLoading ? (
+                        <div className="flex items-center gap-2">
+                            <button
+                                disabled
+                                className="px-6 py-2 bg-brand-primary/20 text-brand-primary font-bold text-xs rounded-lg flex items-center gap-2 cursor-not-allowed"
+                            >
+                                <div className="w-3 h-3 border-2 border-brand-primary/20 border-t-brand-primary rounded-full animate-spin"></div>
+                                <span>Deploying...</span>
+                            </button>
+                            <button
+                                onClick={handleStop}
+                                disabled={isStopping}
+                                className={`px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-xs rounded-lg transition-colors flex items-center gap-2 ${isStopping ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {isStopping ? (
+                                    <div className="w-3 h-3 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin"></div>
+                                ) : (
+                                    <Square className="w-3 h-3 fill-current" />
+                                )}
+                                <span>{isStopping ? 'Stopping...' : 'Stop'}</span>
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={handleDeploy}
+                            disabled={!formData.repoUrl || !formData.appName || !isConnected}
+                            className={`px-8 py-2 font-bold text-xs rounded-lg transition-all ${!formData.repoUrl || !formData.appName || !isConnected
+                                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                : 'bg-brand-primary text-black hover:scale-105 active:scale-95 shadow-lg shadow-brand-primary/20'
+                                }`}
+                        >
+                            Start Deployment
+                        </button>
+                    )}
                     {/* Results / Activity Tab - REMOVED (Moved to Parent) */}
                 </div>
             </div>

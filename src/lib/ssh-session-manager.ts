@@ -34,7 +34,7 @@ export class SshSessionManager {
         // Start new connection
         const connectPromise = new Promise<SshConnection>((resolve, reject) => {
             const client = new Client();
-            
+
             client.on("ready", () => {
                 const conn: SshConnection = {
                     client,
@@ -43,7 +43,7 @@ export class SshSessionManager {
                 // Remove the promise wrapper and store actual connection
                 // BUT keep the promise in the map? No, map should store the struct.
                 // We update the map entry to remove 'isConnecting'
-                sshConnections.set(id, conn); 
+                sshConnections.set(id, conn);
                 resolve(conn);
             });
 
@@ -53,9 +53,9 @@ export class SshSessionManager {
                 // If we were the ones connecting, rejecting is handled by the promise
                 reject(err);
             });
-            
+
             client.on("close", () => {
-                 sshConnections.delete(id);
+                sshConnections.delete(id);
             });
 
             try {
@@ -86,7 +86,7 @@ export class SshSessionManager {
 
     static async getOrCreateSession(id: string, config: any): Promise<{ client: Client; stream: ClientChannel }> {
         const conn = await this.getConnection(id, config);
-        
+
         // Check if existing shell is alive
         if (conn.shell && conn.shell.writable) {
             return { client: conn.client, stream: conn.shell };
@@ -107,17 +107,17 @@ export class SshSessionManager {
 
     static async executeCommand(id: string, config: any, command: string): Promise<string> {
         const conn = await this.getConnection(id, config);
-        
+
         return new Promise((resolve, reject) => {
             conn.client.exec(command, (err, stream) => {
                 if (err) return reject(err);
 
                 let output = "";
                 let error = "";
-                
+
                 stream.on("data", (data: Buffer) => { output += data.toString(); });
                 stream.on("stderr", (data: Buffer) => { error += data.toString(); });
-                
+
                 stream.on("close", (code: any, signal: any) => {
                     resolve(output + error); // Combine for simplicity, or handle error separately
                 });
@@ -146,11 +146,21 @@ export class SshSessionManager {
     }
 
     static closeSessionsPattern(pattern: string) {
-         for (const [id, conn] of sshConnections.entries()) {
+        for (const [id, conn] of sshConnections.entries()) {
             if (id.includes(pattern)) {
                 this.closeSession(id);
             }
         }
+    }
+
+    static async getSftp(id: string, config: any): Promise<any> {
+        const conn = await this.getConnection(id, config);
+        return new Promise((resolve, reject) => {
+            conn.client.sftp((err, sftp) => {
+                if (err) return reject(err);
+                resolve(sftp);
+            });
+        });
     }
 }
 
