@@ -212,7 +212,7 @@ function ManageContent() {
                         {/* Left Panel: System Info */}
                         <Panel
                             panelRef={sidebarRef}
-                            defaultSize={20}
+                            defaultSize={25}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
@@ -436,7 +436,7 @@ function ManageContent() {
 
                                 {/* Terminal Panel */}
                                 <Panel
-                                    defaultSize={40}
+                                    defaultSize={15}
                                     minSize={20}
                                     collapsible={true}
                                     collapsedSize={4}
