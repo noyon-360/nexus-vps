@@ -23,6 +23,10 @@ export default function DomainDetailsDialog({
     const [logs, setLogs] = useState<string | null>(null);
     const [isLogging, setIsLogging] = useState(false);
     const [isPerformingAction, setIsPerformingAction] = useState<string | null>(null);
+    const [branches, setBranches] = useState<string[]>([]);
+    const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+    const [selectedBranch, setSelectedBranch] = useState<string>("");
+    const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
 
     const fetchData = async () => {
         setLoading(true);
@@ -44,6 +48,43 @@ export default function DomainDetailsDialog({
             setError(err.message || "Unknown error occurred.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchBranches = async () => {
+        setIsLoadingBranches(true);
+        try {
+            const { getRepoBranches } = await import("@/app/actions/deploy");
+            const result = await getRepoBranches(config, domainName);
+            if (result.success) {
+                setBranches(result.branches || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch branches", e);
+        } finally {
+            setIsLoadingBranches(false);
+        }
+    };
+
+    const handleSwitchBranch = async () => {
+        if (!process || !selectedBranch) return;
+        if (!confirm(`Switch to branch ${selectedBranch} and redeploy?`)) return;
+
+        setIsSwitchingBranch(true);
+        try {
+            const { switchBranch } = await import("@/app/actions/deploy");
+            const result = await switchBranch(config, process.name, selectedBranch);
+
+            if (result.success) {
+                await fetchData();
+                alert(result.message);
+            } else {
+                alert("Switch failed: " + result.message);
+            }
+        } catch (e: any) {
+            alert("Switch error: " + e.message);
+        } finally {
+            setIsSwitchingBranch(false);
         }
     };
 
@@ -105,7 +146,9 @@ export default function DomainDetailsDialog({
         if (!isOpen) return;
         setProcess(null);
         setLogs(null);
+        setBranches([]);
         fetchData();
+        fetchBranches();
     }, [isOpen, domainName, config]);
 
     if (!isOpen) return null;
@@ -264,16 +307,43 @@ export default function DomainDetailsDialog({
                                     </div>
                                 ) : (
                                     <>
-                                        <div className="p-4 border-b border-white/5 bg-white/[0.01]">
-                                            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Environment Variables & Config</h3>
+                                        <div className="p-4 border-b border-white/5 bg-white/[0.01] flex items-center justify-between">
+                                            <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Branch Management</h3>
+                                            {branches.length > 0 && (
+                                                <div className="flex items-center gap-2">
+                                                    <select
+                                                        value={selectedBranch}
+                                                        onChange={(e) => setSelectedBranch(e.target.value)}
+                                                        className="bg-black/40 border border-white/10 rounded-lg px-3 py-1 text-[10px] text-white focus:outline-none"
+                                                    >
+                                                        <option value="">Select Branch</option>
+                                                        {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                                                    </select>
+                                                    <button
+                                                        onClick={handleSwitchBranch}
+                                                        disabled={!selectedBranch || isSwitchingBranch}
+                                                        className="px-3 py-1 bg-brand-primary text-black rounded-lg text-[10px] font-bold disabled:opacity-50"
+                                                    >
+                                                        {isSwitchingBranch ? "..." : "Switch"}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="p-4 max-h-48 overflow-y-auto custom-scrollbar bg-black/40">
-                                            <pre className="text-[10px] text-zinc-500 font-mono leading-relaxed whitespace-pre-wrap">
-                                                {JSON.stringify(process.pm2_env, (key, value) => {
-                                                    if (key.includes('pass') || key.includes('secret') || key.includes('key')) return '********';
-                                                    return value;
-                                                }, 2)}
-                                            </pre>
+                                            {branches.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    <p className="text-[10px] text-zinc-500 italic">Available branches on VPS:</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {branches.map(b => (
+                                                            <span key={b} className={`px-2 py-0.5 rounded-full text-[9px] font-mono ${selectedBranch === b ? 'bg-brand-primary/20 text-brand-primary border border-brand-primary/30' : 'bg-white/5 text-zinc-400 border border-white/5'}`}>
+                                                                {b}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-[10px] text-zinc-600 italic">No branch information available.</p>
+                                            )}
                                         </div>
                                     </>
                                 )}

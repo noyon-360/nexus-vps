@@ -6,9 +6,17 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "reac
 import { getSystemStats, SystemStats, closeAllConnections } from "@/app/actions/vps";
 import dynamic from "next/dynamic";
 import { EasyDeploy } from "@/components/EasyDeploy";
+import {
+    Activity, ArrowLeft, CheckCircle2, ChevronRight, Clock, Clock3,
+    Cpu, Database, ExternalLink, Globe, LayoutDashboard, Loader2,
+    Lock, MemoryStick, MoreVertical, RefreshCw, Server, Settings,
+    Shield, Terminal as TerminalIcon, Trash2, XCircle, Search, Plus,
+    Key, GitBranch, Play, StopCircle, Square
+} from 'lucide-react';
 
 const TerminalComponent = dynamic(() => import("@/components/Terminal"), { ssr: false });
 const DomainDetailsDialog = dynamic(() => import("@/components/DomainDetailsDialog"), { ssr: false });
+const FileExplorer = dynamic(() => import("@/components/FileExplorer").then(mod => mod.FileExplorer), { ssr: false });
 
 function ManageContent() {
     const router = useRouter();
@@ -36,9 +44,15 @@ function ManageContent() {
     const [isProcessesCollapsed, setIsProcessesCollapsed] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(true);
+    const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
     const [showExitDialog, setShowExitDialog] = useState(false);
     const [isExiting, setIsExiting] = useState(false);
+
+    // Right Panel State
+    const [activeRightTab, setActiveRightTab] = useState<'explorer' | 'activity' | 'console'>('explorer');
+    const [deployStats, setDeployStats] = useState<any | null>(null);
+    const [isDeploying, setIsDeploying] = useState(false);
+    const [isStopping, setIsStopping] = useState(false);
 
     const panelRef = useRef<any>(null);
     const sidebarRef = useRef<any>(null);
@@ -88,6 +102,21 @@ function ManageContent() {
 
         return () => clearInterval(interval);
     }, [host, user, encodedPass, isExiting]);
+
+    const handleDeployStart = () => {
+        setIsDeploying(true);
+        setDeployStats(null);
+        setActiveRightTab('console'); // Auto-switch to console
+    };
+
+    const handleDeployComplete = (result: any) => {
+        // Only stop deploying state if it's actually finished (not RUNNING)
+        if (result.message !== 'RUNNING') {
+            setIsDeploying(false);
+            setIsStopping(false);
+        }
+        setDeployStats(result);
+    };
 
     const dialogConfig = React.useMemo(() => {
         let password = "";
@@ -183,11 +212,11 @@ function ManageContent() {
                         {/* Left Panel: System Info */}
                         <Panel
                             panelRef={sidebarRef}
-                            defaultSize={30}
+                            defaultSize={25}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
-                            onResize={(size) => setIsSidebarCollapsed(size.asPercentage < 10)}
+                            onResize={(size: any) => setIsSidebarCollapsed(size === 0 || (typeof size === 'object' && size.asPercentage < 10))}
                             className={`flex flex-col transition-all duration-300 ${isSidebarCollapsed ? 'bg-white/[0.02]' : ''}`}
                         >
                             {isSidebarCollapsed ? (
@@ -385,16 +414,19 @@ function ManageContent() {
                         </PanelResizeHandle>
 
                         {/* Center Panel: Terminal & Easy Deploy */}
-                        <Panel defaultSize={50} minSize={30}>
+                        <Panel defaultSize={55} minSize={30}>
                             <PanelGroup orientation="vertical" className="h-full">
                                 {/* Easy Deploy Panel */}
-                                <Panel defaultSize={40} minSize={20} className="p-6 pb-2">
+                                <Panel defaultSize={60} minSize={20} className="p-6 pb-2">
+
                                     <EasyDeploy
                                         config={dialogConfig}
                                         onSuccess={() => {
                                             // Trigger a refresh of stats
                                             setLastUpdated(Date.now().toString());
                                         }}
+                                        onDeployStart={handleDeployStart}
+                                        onDeployComplete={handleDeployComplete}
                                     />
                                 </Panel>
 
@@ -404,8 +436,8 @@ function ManageContent() {
 
                                 {/* Terminal Panel */}
                                 <Panel
-                                    defaultSize={5}
-                                    minSize={10}
+                                    defaultSize={15}
+                                    minSize={20}
                                     collapsible={true}
                                     collapsedSize={4}
                                     onResize={(size) => setIsTerminalCollapsed(size.inPixels < 100)}
@@ -483,11 +515,11 @@ function ManageContent() {
                         {/* Right Panel: Active Processes */}
                         <Panel
                             panelRef={panelRef}
-                            defaultSize={20}
+                            defaultSize={25}
                             minSize={15}
                             collapsible={true}
                             collapsedSize={4}
-                            onResize={(size) => setIsProcessesCollapsed(size.asPercentage < 10)}
+                            onResize={(size: any) => setIsProcessesCollapsed(size === 0 || size < 10)}
                             className={`flex flex-col transition-all duration-300 ${isProcessesCollapsed ? 'bg-white/[0.02]' : ''}`}
                         >
                             {isProcessesCollapsed ? (
@@ -517,59 +549,251 @@ function ManageContent() {
                                         </button>
                                     </div>
 
-                                    {/* Process Header */}
+                                    {/* Process Header / Tabs */}
                                     <div className="h-20 flex-shrink-0 border-b border-white/5 flex items-center px-8 justify-between bg-black/20">
                                         <div className="flex items-center gap-4">
-                                            <h3 className="text-xs font-black text-white uppercase tracking-[0.2em]">Active Processes</h3>
-                                            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400">
-                                                {stats.processes.length} Running
-                                            </span>
+                                            {/* Tab Switcher */}
+                                            <div className="flex p-1 bg-white/5 rounded-lg border border-white/5">
+                                                <button
+                                                    onClick={() => setActiveRightTab('explorer')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${activeRightTab === 'explorer' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                                >
+                                                    Explorer
+                                                </button>
+                                                <button
+                                                    onClick={() => setActiveRightTab('activity')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${activeRightTab === 'activity' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                                >
+                                                    Activity
+                                                </button>
+                                                <button
+                                                    onClick={() => setActiveRightTab('console')}
+                                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${activeRightTab === 'console' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                                >
+                                                    Console
+                                                </button>
+                                            </div>
+
+                                            {activeRightTab === 'activity' && (
+                                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold text-zinc-400">
+                                                    {stats.processes.length} Running
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* Process List Header & Content */}
-                                    <div className="h-10 bg-white/[0.03] flex items-center px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">
-                                        <span className="w-full">CMD</span>
-                                        <span className="w-16 text-right">PID</span>
-                                        <span className="w-12 text-right">CPU</span>
-                                        <span className="w-12 text-right">MEM</span>
-                                    </div>
-
-                                    <div className="flex-grow overflow-y-auto custom-scrollbar p-0 group">
-                                        {isLoading ? (
-                                            <div className="h-full flex flex-col items-center justify-center gap-4 text-zinc-600">
-                                                <div className="animate-spin w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full"></div>
-                                                <span className="text-xs font-mono uppercase tracking-widest">Fetching...</span>
+                                    {/* Content based on Tab */}
+                                    {activeRightTab === 'explorer' ? (
+                                        <div className="flex-grow overflow-hidden p-4">
+                                            <FileExplorer config={dialogConfig} />
+                                        </div>
+                                    ) : activeRightTab === 'activity' ? (
+                                        <>
+                                            {/* Process List Header & Content */}
+                                            <div className="h-10 bg-white/[0.03] flex items-center px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider shrink-0">
+                                                <span className="w-full">CMD</span>
+                                                <span className="w-16 text-right">PID</span>
+                                                <span className="w-12 text-right">CPU</span>
+                                                <span className="w-12 text-right">MEM</span>
                                             </div>
-                                        ) : (
-                                            <table className="w-full text-left border-collapse">
-                                                <tbody className="divide-y divide-white/5">
-                                                    {stats.processes.map((proc) => (
-                                                        <tr key={proc.pid} className="group hover:bg-white/[0.02] transition-colors">
-                                                            <td className="py-2 pl-4">
-                                                                <div className="text-[10px] font-bold text-zinc-300 group-hover:text-brand-primary transition-colors truncate max-w-[120px]" title={proc.command}>{proc.command}</div>
-                                                            </td>
-                                                            <td className="py-2 text-right w-16">
-                                                                <span className="text-[9px] font-mono text-zinc-500">{proc.pid}</span>
-                                                            </td>
-                                                            <td className="py-2 text-right w-12">
-                                                                <span className={`text-[9px] font-mono font-bold ${parseFloat(proc.cpu) > 10 ? 'text-brand-primary' : 'text-zinc-400'}`}>{proc.cpu}</span>
-                                                            </td>
-                                                            <td className="py-2 text-right w-12 pr-4">
-                                                                <span className="text-[9px] font-mono text-zinc-400">{proc.mem}</span>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        )}
-                                    </div>
+
+                                            <div className="flex-grow overflow-y-auto custom-scrollbar p-0 group">
+                                                {isLoading ? (
+                                                    <div className="h-full flex flex-col items-center justify-center gap-4 text-zinc-600">
+                                                        <div className="animate-spin w-6 h-6 border-2 border-brand-primary border-t-transparent rounded-full"></div>
+                                                        <span className="text-xs font-mono uppercase tracking-widest">Fetching...</span>
+                                                    </div>
+                                                ) : (
+                                                    <table className="w-full text-left border-collapse">
+                                                        <tbody className="divide-y divide-white/5">
+                                                            {stats.processes.map((proc) => (
+                                                                <tr key={proc.pid} className="group hover:bg-white/[0.02] transition-colors">
+                                                                    <td className="py-2 pl-4">
+                                                                        <div className="text-[10px] font-bold text-zinc-300 group-hover:text-brand-primary transition-colors truncate max-w-[120px]" title={proc.command}>{proc.command}</div>
+                                                                    </td>
+                                                                    <td className="py-2 text-right w-16">
+                                                                        <span className="text-[9px] font-mono text-zinc-500">{proc.pid}</span>
+                                                                    </td>
+                                                                    <td className="py-2 text-right w-12">
+                                                                        <span className={`text-[9px] font-mono font-bold ${parseFloat(proc.cpu) > 10 ? 'text-brand-primary' : 'text-zinc-400'}`}>{proc.cpu}</span>
+                                                                    </td>
+                                                                    <td className="py-2 text-right w-12 pr-4">
+                                                                        <span className="text-[9px] font-mono text-zinc-400">{proc.mem}</span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                )}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        /* Console View */
+                                        <div className="flex-grow overflow-y-auto custom-scrollbar p-4 space-y-4">
+                                            {isDeploying ? (
+                                                <div className="flex flex-col h-full bg-[#050505] rounded-xl border border-white/5 overflow-hidden">
+                                                    {/* Progress Header */}
+                                                    <div className="p-4 border-b border-white/5 bg-black/20 flex flex-col gap-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="relative">
+                                                                <div className="w-8 h-8 rounded-full border-2 border-brand-primary/20 border-t-brand-primary animate-spin"></div>
+                                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse"></div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex-grow">
+                                                                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Deploying Application...</h4>
+                                                                <p className="text-[10px] text-zinc-500">Live output from VPS</p>
+                                                            </div>
+                                                            <button
+                                                                disabled={isStopping}
+                                                                onClick={async () => {
+                                                                    if (!deployStats?.deployId) return;
+                                                                    if (!confirm("Stop and cleanup deployment?")) return;
+                                                                    setIsStopping(true);
+                                                                    try {
+                                                                        const { stopDeployment } = await import("@/app/actions/deploy");
+                                                                        await stopDeployment(dialogConfig, deployStats.deployId, deployStats.appName || "app");
+                                                                    } catch (e) {
+                                                                        console.error(e);
+                                                                        setIsStopping(false);
+                                                                    }
+                                                                }}
+                                                                className={`px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-2 ${isStopping ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                            >
+                                                                {isStopping ? (
+                                                                    <div className="w-3 h-3 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin"></div>
+                                                                ) : (
+                                                                    <Square className="w-3 h-3 fill-current" />
+                                                                )}
+                                                                <span>{isStopping ? 'Stopping...' : 'Cancel'}</span>
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Step Indicators */}
+                                                        {deployStats?.steps && (
+                                                            <div className="flex items-center gap-1 w-full pt-2">
+                                                                {deployStats.steps.map((step: any, idx: number) => (
+                                                                    <div key={idx} className="flex-1 flex flex-col gap-1">
+                                                                        <div className={`h-1 w-full rounded-full transition-all duration-500 ${step.status === 'success' ? 'bg-green-500' :
+                                                                            step.status === 'running' ? 'bg-brand-primary animate-pulse' :
+                                                                                step.status === 'failure' ? 'bg-red-500' : 'bg-white/10'
+                                                                            }`} />
+                                                                        <span className={`text-[8px] font-bold truncate transition-colors ${step.status === 'running' ? 'text-brand-primary' :
+                                                                            step.status === 'success' ? 'text-green-500' : 'text-zinc-700'
+                                                                            }`}>{step.name}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Logs Re-use */}
+                                                    <div className="flex-grow p-4 overflow-y-auto custom-scrollbar font-mono text-[11px] space-y-1">
+                                                        {deployStats?.logs ? deployStats.logs.map((log: string, i: number) => (
+                                                            <div key={i} className="text-zinc-400 border-b border-white/[0.02] pb-1 mb-1 last:border-0 break-all">
+                                                                <span className="text-zinc-700 mr-3 select-none">{(i + 1).toString().padStart(3, '0')}</span>
+                                                                {log}
+                                                            </div>
+                                                        )) : (
+                                                            <div className="text-zinc-600 italic text-center py-10">Waiting for logs...</div>
+                                                        )}
+                                                        {/* Auto-scroll anchor */}
+                                                        <div ref={(el) => { if (el) el.scrollIntoView({ behavior: 'smooth' }); }} />
+                                                    </div>
+                                                </div>
+                                            ) : !deployStats ? (
+                                                <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-2">
+                                                    <svg className="w-8 h-8 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                    <span className="text-xs font-medium">No recent console output</span>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    {/* Deployment Status Header */}
+                                                    <div className={`p-4 rounded-xl border ${deployStats.success ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                                                        <div className="flex items-center gap-3 mb-2">
+                                                            <div className={`w-2 h-2 rounded-full ${deployStats.success ? 'bg-green-500' : 'bg-red-500'} shadow-[0_0_10px_currentColor]`} />
+                                                            <span className={`text-xs font-bold uppercase ${deployStats.success ? 'text-green-400' : 'text-red-400'}`}>
+                                                                {deployStats.success ? 'Deployment Successful' : 'Deployment Failed'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[10px] text-zinc-400">{deployStats.message}</p>
+                                                    </div>
+
+                                                    {/* Steps */}
+                                                    {deployStats.steps && deployStats.steps.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Execution Steps</h4>
+                                                            {deployStats.steps.map((step: any, i: number) => (
+                                                                <div key={i} className="flex items-center gap-3 p-2 rounded hover:bg-white/5 transition-colors">
+                                                                    <div className="shrink-0">
+                                                                        {step.status === 'success' && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                                                        {step.status === 'failure' && <div className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                                                        {step.status === 'running' && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+                                                                        {step.status === 'pending' && <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />}
+                                                                    </div>
+                                                                    <div className="flex-grow min-w-0">
+                                                                        <div className="flex justify-between items-baseline">
+                                                                            <span className={`text-[10px] font-bold ${step.status === 'success' ? 'text-zinc-300' : step.status === 'failure' ? 'text-red-400' : 'text-zinc-500'}`}>
+                                                                                {step.name}
+                                                                            </span>
+                                                                        </div>
+                                                                        {step.details && <p className="text-[9px] text-zinc-600 truncate mt-0.5">{step.details}</p>}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Logs */}
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">System Logs</h4>
+                                                            <span className="text-[9px] font-mono text-zinc-600">{deployStats.logs?.length || 0} lines</span>
+                                                        </div>
+                                                        <div className="bg-black/50 rounded-xl border border-white/5 p-4 font-mono text-[11px] text-zinc-400 overflow-x-auto custom-scrollbar max-h-[500px]">
+                                                            {deployStats.logs && deployStats.logs.map((log: string, i: number) => (
+                                                                <div key={i} className="py-1 border-b border-white/5 last:border-0 whitespace-pre-wrap hover:bg-white/5 hover:text-zinc-200 transition-colors">
+                                                                    <span className="text-zinc-600 select-none mr-3">{(i + 1).toString().padStart(3, '0')}</span>
+                                                                    {log}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </Panel>
                     </PanelGroup>
                 </main>
             </div>
+            {/* Scrollbar and local overrides */}
+            <style jsx global>{`
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 4px;
+                    height: 4px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: rgba(255, 255, 255, 0.02);
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: rgba(246, 148, 77, 0.15);
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: rgba(246, 148, 77, 0.3);
+                }
+                /* Firefox */
+                .custom-scrollbar {
+                    scrollbar-width: thin;
+                    scrollbar-color: rgba(246, 148, 77, 0.15) rgba(255, 255, 255, 0.02);
+                }
+            `}</style>
         </div>
     );
 }

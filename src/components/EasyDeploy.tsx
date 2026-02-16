@@ -1,18 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Terminal, Globe, Github, Server, Play, ShieldAlert } from "lucide-react";
-import { DeployConfig, DeployResult } from "@/types/deploy";
+import { useState, useEffect } from "react";
+import { Server, Globe, Cpu, MemoryStick, Activity, Terminal, Terminal as TerminalIcon, Shield, Search, ExternalLink, RefreshCw, Trash2, Clock, CheckCircle2, XCircle, AlertCircle, Loader2, GitBranch, Key, Square, Github, Play, ShieldAlert, ChevronRight } from 'lucide-react';
+import { DeployConfig, DeployResult, DeployStep } from "@/types/deploy";
 import { deployProject } from "@/app/actions/deploy";
 import { VpsConnectionData } from "@/app/actions/vps";
 
 interface EasyDeployProps {
     config: VpsConnectionData;
     onSuccess?: () => void;
+    onDeployStart?: () => void;
+    onDeployComplete?: (result: DeployResult) => void;
 }
 
 // Easy Deploy Component with GitHub Integration
-export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
+export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete }: EasyDeployProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [deployStats, setDeployStats] = useState<DeployResult | null>(null);
     const [formData, setFormData] = useState<DeployConfig>({
@@ -34,6 +36,63 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
+
+    // Real-time Logs State
+    const [logs, setLogs] = useState<string[]>([]);
+    const [steps, setSteps] = useState<any[]>([
+        { name: "System Setup", status: "pending" },
+        { name: "Directory & Backup", status: "pending" },
+        { name: "Clone Repository", status: "pending" },
+        { name: "Install & Build", status: "pending" },
+        { name: "Start Application", status: "pending" },
+        { name: "Configure Nginx", status: "pending" },
+        { name: "SSL Certificate", status: "pending" }
+    ]);
+    const [deployId, setDeployId] = useState<string | null>(null);
+    const [isStopping, setIsStopping] = useState(false);
+
+    // Polling for Real-time Logs
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (deployId) {
+            interval = setInterval(async () => {
+                try {
+                    const result = await import("@/app/actions/deploy").then(mod => mod.getDeployStatus(deployId));
+                    if (result.success) {
+                        setLogs(result.logs || []);
+                        if (result.steps) {
+                            setSteps(result.steps as any[]);
+                        }
+
+                        // Pass updates to parent if needed
+                        if (onDeployComplete) {
+                            onDeployComplete({
+                                success: result.status === 'SUCCESS',
+                                message: result.status || "Unknown",
+                                logs: result.logs || [],
+                                steps: (result.steps as any[]) || []
+                            });
+                        }
+
+                        if (result.status !== 'RUNNING') {
+                            clearInterval(interval);
+                            setIsLoading(false);
+                            setIsStopping(false);
+                            setDeployId(null); // Stop polling
+                            if (result.status === 'SUCCESS' && onSuccess) onSuccess();
+                            if (result.status === 'FAILED') alert("Deployment Failed (Check logs)");
+                            if (result.status === 'CANCELLED') {
+                                setLogs(prev => [...prev, "[SYSTEM] Deployment successfully stopped and cleaned up."]);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+        return () => clearInterval(interval);
+    }, [deployId]);
 
 
 
@@ -74,9 +133,9 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
     const handleSelectRepo = async (repo: any) => {
         setFormData(prev => ({
             ...prev,
-            repoUrl: repo.html_url,
+            repoUrl: repo.html_url || "",
             appName: repo.name,
-            branch: repo.default_branch,
+            branch: repo.default_branch || "main",
             // Guess framework
             framework:
                 repo.language === 'TypeScript' || repo.language === 'JavaScript' ? 'node' :
@@ -92,8 +151,8 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
             // Repo full_name is "owner/repo"
             const [owner, name] = repo.full_name.split('/');
             const result = await import("@/app/actions/github").then(mod => mod.fetchGithubBranches(githubToken, owner, name));
-            if (result.success) {
-                setBranches(result.branches);
+            if (result && result.success) {
+                setBranches((result as any).branches || []);
             }
         } catch (e) {
             console.error("Failed to fetch branches", e);
@@ -102,9 +161,37 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
         }
     };
 
+    // Auto-fetch branches when URL changes manually (if connected)
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (formData.repoUrl && isConnected && githubToken) {
+                try {
+                    // Extract owner and name
+                    const cleanUrl = formData.repoUrl.replace('.git', '').replace(/\/$/, '');
+                    const parts = cleanUrl.split('/');
+                    const name = parts[parts.length - 1];
+                    const owner = parts[parts.length - 2];
+
+                    if (owner && name) {
+                        setIsLoadingBranches(true);
+                        const result = await import("@/app/actions/github").then(mod => mod.fetchGithubBranches(githubToken, owner, name));
+                        if (result && result.success) {
+                            setBranches((result as any).branches || []);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Auto branch fetch failed", e);
+                } finally {
+                    setIsLoadingBranches(false);
+                }
+            }
+        }, 800); // Debounce for typing
+
+        return () => clearTimeout(timer);
+    }, [formData.repoUrl, isConnected, githubToken]);
+
     const filteredRepos = repos.filter(r => r.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const [activeTab, setActiveTab] = useState<'activity' | 'console'>('activity');
 
     // Auto-fill commands based on Framework
     // ensuring we don't overwrite user changes if they switch back and forth too much, 
@@ -125,7 +212,7 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
         try {
             const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(githubToken));
             if (result.success) {
-                setRepos(result.repos);
+                setRepos(result.repos || []);
                 setIsConnected(true);
                 setFormData(prev => ({ ...prev, token: githubToken }));
             } else {
@@ -145,23 +232,90 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
 
     const handleDeploy = async () => {
         setIsLoading(true);
-        setDeployStats(null);
-        setActiveTab('activity'); // Switch to activity view on start
+        setLogs([]);
+        setSteps(prev => prev.map(s => ({ ...s, status: 'pending', details: undefined })));
+        setDeployId(null);
+
+        if (onDeployStart) onDeployStart();
+
+        // Validation
+        if (!formData.repoUrl || !formData.repoUrl.includes("github.com")) {
+            const msg = "Please enter a valid GitHub repository URL (e.g., https://github.com/owner/repo)";
+            setLogs(prev => [...prev, `[VALIDATION ERROR] ${msg}`]);
+            setIsLoading(false);
+            if (onDeployComplete) onDeployComplete({ success: false, message: msg, logs: [], steps: [] });
+            return;
+        }
+
+        if (!formData.appName || formData.appName.length < 3) {
+            const msg = "App name must be at least 3 characters long";
+            setLogs(prev => [...prev, `[VALIDATION ERROR] ${msg}`]);
+            setIsLoading(false);
+            if (onDeployComplete) onDeployComplete({ success: false, message: msg, logs: [], steps: [] });
+            return;
+        }
+
         try {
-            const result = await deployProject(config, formData);
-            setDeployStats(result);
-            if (result.success && onSuccess) {
-                onSuccess();
+            const { initDeployment, deployProject } = await import("@/app/actions/deploy");
+
+            // Phase 1: Initialize
+            const init = await initDeployment(config, formData);
+            if (!init.success || !init.deployId) {
+                throw new Error(init.message || "Failed to initialize deployment");
             }
+
+            // Immediately start polling
+            setDeployId(init.deployId);
+
+            // Phase 2: Execute
+            const result = await deployProject(config, {
+                ...formData,
+                authType: formData.token ? 'oauth' : (formData.gitUsername ? 'userpass' : 'token')
+            }, init.deployId);
+
+            if (!result.success) {
+                // Polling will handle the failure state usually, but we handle it here too for immediate feedback
+                console.error("Deployment failed", result.message);
+            }
+
+            if (onDeployComplete) onDeployComplete(result);
         } catch (error: any) {
-            setDeployStats({
+            console.error("Deployment Error:", error);
+            setLogs(prev => [...prev, `[ERROR] ${error.message}`]);
+            setIsLoading(false);
+            if (onDeployComplete) onDeployComplete({
                 success: false,
                 message: error.message,
-                logs: ["Deployment failed due to client-side error."],
-                steps: []
+                logs: logs,
+                steps: steps
             });
-        } finally {
-            setIsLoading(false);
+        }
+    };
+
+    const handleStop = async () => {
+        console.log("handleStop clicked. deployId:", deployId);
+        if (!deployId) {
+            alert("Nothing to stop (No active deployment ID found)");
+            return;
+        }
+        if (!confirm("Are you sure you want to stop and cleanup this deployment?")) return;
+
+        setIsStopping(true);
+        setLogs(prev => [...prev, "[SYSTEM] Stopping deployment and cleaning up VPS..."]);
+
+        try {
+            console.log("Calling stopDeployment for:", deployId);
+            const { stopDeployment } = await import("@/app/actions/deploy");
+            const result = await stopDeployment(config, deployId, formData.appName);
+            console.log("stopDeployment result:", result);
+            if (!result.success) {
+                alert("Failed to stop: " + result.message);
+            }
+            // Polling will pick up the status change
+        } catch (e: any) {
+            console.error("Stop failed", e);
+            setLogs(prev => [...prev, `[ERROR] Failed to send stop signal: ${e.message}`]);
+            setIsStopping(false);
         }
     };
 
@@ -222,14 +376,65 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                                         <div className="space-y-3">
                                             <div className="flex items-center justify-between">
                                                 <h5 className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Connect GitHub</h5>
-                                                <a
-                                                    href="https://github.com/settings/tokens/new?scopes=repo&description=NexusVPS"
-                                                    target="_blank"
-                                                    className="text-[10px] text-zinc-500 hover:text-blue-400 underline decoration-dotted"
-                                                >
-                                                    Generate Token (Scope: repo)
-                                                </a>
                                             </div>
+
+                                            <button
+                                                onClick={() => {
+                                                    const width = 600;
+                                                    const height = 700;
+                                                    const left = window.screen.width / 2 - width / 2;
+                                                    const top = window.screen.height / 2 - height / 2;
+
+                                                    const popup = window.open(
+                                                        '/api/github/auth',
+                                                        'GitHub Auth',
+                                                        `width=${width},height=${height},left=${left},top=${top}`
+                                                    );
+
+                                                    const handleMessage = async (event: MessageEvent) => {
+                                                        if (event.data?.type === 'GITHUB_AUTH_SUCCESS' && event.data.token) {
+                                                            const token = event.data.token;
+                                                            setGithubToken(token);
+                                                            setIsConnecting(true);
+                                                            popup?.close();
+                                                            window.removeEventListener('message', handleMessage);
+
+                                                            // Auto-connect
+                                                            try {
+                                                                const result = await import("@/app/actions/github").then(mod => mod.fetchGithubRepos(token));
+                                                                if (result.success) {
+                                                                    setRepos(result.repos || []);
+                                                                    setIsConnected(true);
+                                                                    setFormData(prev => ({
+                                                                        ...prev,
+                                                                        token: token,
+                                                                        authType: 'oauth' // Set auth type to oauth for deploy key logic
+                                                                    }));
+                                                                } else {
+                                                                    alert("Failed to fetch repositories: " + result.message);
+                                                                }
+                                                            } catch (e) {
+                                                                console.error(e);
+                                                            } finally {
+                                                                setIsConnecting(false);
+                                                            }
+                                                        }
+                                                    };
+
+                                                    window.addEventListener('message', handleMessage);
+                                                }}
+                                                className="w-full bg-[#24292e] text-white px-4 py-3 rounded-lg text-xs font-bold hover:bg-[#2f363d] transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <Github size={16} />
+                                                <span>Sign in with GitHub</span>
+                                            </button>
+
+                                            <div className="relative flex items-center gap-4 py-2">
+                                                <div className="h-px bg-white/5 flex-grow"></div>
+                                                <span className="text-[10px] text-zinc-600 uppercase">OR USE TOKEN</span>
+                                                <div className="h-px bg-white/5 flex-grow"></div>
+                                            </div>
+
                                             <div className="flex gap-2">
                                                 <input
                                                     type="password"
@@ -247,7 +452,7 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                                                 </button>
                                             </div>
                                             <p className="text-[10px] text-zinc-500">
-                                                We use this token to list your repositories and clone private projects. It is only used for this session deployment.
+                                                Sign in to auto-configure access, or provide a token manually.
                                             </p>
                                         </div>
                                     ) : (
@@ -288,23 +493,32 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                                     <Loader2 className="animate-spin text-zinc-500" size={14} />
                                     <span className="text-xs text-zinc-500">Fetching branches...</span>
                                 </div>
-                            ) : (branches.length > 0 && isConnected) ? (
-                                <select
-                                    name="branch"
-                                    value={formData.branch} onChange={handleChange}
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none"
-                                >
-                                    {branches.map((b: any) => (
-                                        <option key={b.name} value={b.name}>{b.name}</option>
-                                    ))}
-                                </select>
+                            ) : (branches.length > 0) ? (
+                                <div className="relative group/select">
+                                    <GitBranch className="absolute left-3 top-2.5 text-zinc-600 group-focus-within/select:text-brand-primary transition-colors" size={14} />
+                                    <select
+                                        name="branch"
+                                        value={formData.branch} onChange={handleChange}
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-8 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50 appearance-none cursor-pointer"
+                                    >
+                                        {branches.map((b: any) => (
+                                            <option key={b.name} value={b.name}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute right-3 top-3 pointer-events-none text-zinc-600">
+                                        <ChevronRight size={14} className="rotate-90" />
+                                    </div>
+                                </div>
                             ) : (
-                                <input
-                                    name="branch"
-                                    value={formData.branch} onChange={handleChange}
-                                    placeholder="main"
-                                    className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
-                                />
+                                <div className="relative">
+                                    <GitBranch className="absolute left-3 top-2.5 text-zinc-600" size={14} />
+                                    <input
+                                        name="branch"
+                                        value={formData.branch} onChange={handleChange}
+                                        placeholder="main"
+                                        className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary/50"
+                                    />
+                                </div>
                             )}
                         </div>
                     </div>
@@ -490,77 +704,41 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
 
                 {/* Actions */}
                 <div className="pt-4 border-t border-white/5 space-y-4 pb-4">
-                    <button
-                        onClick={handleDeploy}
-                        disabled={isLoading || !formData.appName || !formData.repoUrl}
-                        className={`w-full py-4 rounded-xl flex items-center justify-center gap-2 font-bold tracking-wide text-sm transition-all shadow-xl ${isLoading
-                            ? 'bg-brand-primary/20 text-brand-primary cursor-not-allowed'
-                            : 'bg-gradient-to-r from-blue-600 to-brand-primary hover:from-blue-500 hover:to-brand-primary/80 text-white shadow-blue-900/20 hover:shadow-blue-900/40 transform hover:-translate-y-0.5'
-                            }`}
-                    >
-                        {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Server size={18} />}
-                        {isLoading ? "INITIALIZING DEPLOYMENT..." : "CREATE WEB SERVICE"}
-                    </button>
-
-                    {/* Results / Activity Tab */}
-                    {deployStats && (
-                        <div className={`rounded-xl border border-white/10 overflow-hidden bg-black/50`}>
-                            {/* Tabs */}
-                            <div className="flex items-center border-b border-white/10 bg-white/5">
-                                <button
-                                    onClick={() => setActiveTab('activity')}
-                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'activity' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    Activity Progress
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('console')}
-                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'console' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    Console Logs
-                                </button>
-                            </div>
-
-                            {/* Content */}
-                            <div className="p-4">
-                                {activeTab === 'activity' && (
-                                    <div className="space-y-4">
-                                        <div className={`p-3 rounded-lg border flex items-center gap-3 ${deployStats.success ? 'bg-green-500/10 border-green-500/20' : deployStats.message.includes('failed') ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
-                                            {deployStats.success ? <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" /> : !isLoading ? <ShieldAlert size={16} className="text-red-500" /> : <Loader2 size={16} className="text-blue-500 animate-spin" />}
-                                            <span className="text-sm font-bold text-white uppercase">{deployStats.message || "Deploying..."}</span>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            {deployStats.steps.map((step, i) => (
-                                                <div key={i} className="flex items-center gap-3 p-2 rounded hover:bg-white/5">
-                                                    <div className="shrink-0 w-5 flex justify-center">
-                                                        {step.status === 'success' && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                                                        {step.status === 'failure' && <div className="w-2 h-2 rounded-full bg-red-500" />}
-                                                        {step.status === 'running' && <Loader2 size={12} className="text-blue-400 animate-spin" />}
-                                                        {step.status === 'pending' && <div className="w-2 h-2 rounded-full bg-zinc-700" />}
-                                                    </div>
-                                                    <div className="flex-grow">
-                                                        <span className={`text-xs font-medium ${step.status === 'running' ? 'text-blue-400' : step.status === 'success' ? 'text-green-400' : step.status === 'failure' ? 'text-red-400' : 'text-zinc-500'}`}>
-                                                            {step.name}
-                                                        </span>
-                                                        {step.details && <p className="text-[10px] text-zinc-600">{step.details}</p>}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
+                    {isLoading ? (
+                        <div className="flex items-center gap-2">
+                            <button
+                                disabled
+                                className="px-6 py-2 bg-brand-primary/20 text-brand-primary font-bold text-xs rounded-lg flex items-center gap-2 cursor-not-allowed"
+                            >
+                                <div className="w-3 h-3 border-2 border-brand-primary/20 border-t-brand-primary rounded-full animate-spin"></div>
+                                <span>Deploying...</span>
+                            </button>
+                            <button
+                                onClick={handleStop}
+                                disabled={isStopping}
+                                className={`px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-xs rounded-lg transition-colors flex items-center gap-2 ${isStopping ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {isStopping ? (
+                                    <div className="w-3 h-3 border-2 border-red-500/20 border-t-red-500 rounded-full animate-spin"></div>
+                                ) : (
+                                    <Square className="w-3 h-3 fill-current" />
                                 )}
-
-                                {activeTab === 'console' && (
-                                    <div className="bg-black rounded-lg p-3 max-h-[300px] overflow-y-auto font-mono text-[10px] text-zinc-400 border border-white/5 custom-scrollbar">
-                                        {deployStats.logs.map((log, i) => (
-                                            <div key={i} className="py-0.5 border-b border-white/5 last:border-0">{log}</div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                                <span>{isStopping ? 'Stopping...' : 'Stop'}</span>
+                            </button>
                         </div>
+                    ) : (
+                        <button
+                            onClick={handleDeploy}
+                            disabled={!formData.repoUrl || !formData.appName || !isConnected}
+                            className={`px-8 py-2 font-bold text-xs rounded-lg transition-all ${!formData.repoUrl || !formData.appName || !isConnected
+                                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                : 'bg-brand-primary text-black hover:scale-105 active:scale-95 shadow-lg shadow-brand-primary/20'
+                                }`}
+                        >
+                            Start Deployment
+                        </button>
                     )}
+                    {/* Results / Activity Tab - REMOVED (Moved to Parent) */}
                 </div>
             </div>
         </div>

@@ -37,7 +37,7 @@ export interface CredentialRequestData {
 
 
 // Admin Action: Create a new request
-export async function createCredentialRequest(clientName: string, config: CredentialRequestConfig) {
+export async function createCredentialRequest(clientName: string, config: CredentialRequestConfig, note?: string) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
         return { success: false, message: "Unauthorized" };
@@ -49,6 +49,7 @@ export async function createCredentialRequest(clientName: string, config: Creden
             data: {
                 clientName,
                 config: config as any,
+                note,
                 status: "PENDING",
                 // Add this → very useful for your /collect/[slug] route
                 slug: crypto.randomUUID().slice(0, 20), // or use nanoid, or slugify(clientName) + random suffix
@@ -264,7 +265,7 @@ export async function acceptCredentialRequest(id: string) {
 }
 
 // Admin Action: Update request config
-export async function updateCredentialRequestConfig(id: string, config: CredentialRequestConfig) {
+export async function updateCredentialRequestConfig(id: string, config: CredentialRequestConfig, note?: string) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
         return { success: false, message: "Unauthorized" };
@@ -276,6 +277,7 @@ export async function updateCredentialRequestConfig(id: string, config: Credenti
             where: { id },
             data: {
                 config: config as any,
+                note,
             },
         });
         return { success: true, request };
@@ -286,7 +288,7 @@ export async function updateCredentialRequestConfig(id: string, config: Credenti
 }
 
 // User Action: Save a preset
-export async function saveCredentialPreset(name: string, config: CredentialRequestConfig) {
+export async function saveCredentialPreset(name: string, config: CredentialRequestConfig, note?: string) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
         return { success: false, message: "Unauthorized" };
@@ -299,6 +301,7 @@ export async function saveCredentialPreset(name: string, config: CredentialReque
             data: {
                 name,
                 config: config as any,
+                note,
                 userId: user.id,
             },
         });
@@ -335,7 +338,7 @@ export async function getCredentialPresets() {
 }
 
 // User Action: Update preset
-export async function updateCredentialPreset(id: string, name: string, config: CredentialRequestConfig) {
+export async function updateCredentialPreset(id: string, name: string, config: CredentialRequestConfig, note?: string) {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
         return { success: false, message: "Unauthorized" };
@@ -349,6 +352,7 @@ export async function updateCredentialPreset(id: string, name: string, config: C
             data: {
                 name,
                 config: config as any,
+                note,
             },
         });
         return { success: true, preset };

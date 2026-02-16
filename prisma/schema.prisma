@@ -25,6 +25,7 @@ model CredentialPreset {
   id        String   @id @default(cuid())
   name      String
   config    Json
+  note      String?
   userId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -69,6 +70,7 @@ model Deploy {
   port      Int
   status    String
   logs      String?
+  steps     Json?
   createdAt DateTime @default(now())
   vps       Vps      @relation(fields: [vpsId], references: [id], onDelete: Cascade)
 }
@@ -80,6 +82,7 @@ model CredentialRequest {
   status     String   @default("PENDING")
   config     Json
   data       Json?
+  note       String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

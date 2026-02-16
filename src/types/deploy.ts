@@ -12,6 +12,7 @@ export interface DeployConfig {
     entryFile?: string;
     domain?: string;
     envVars?: string; // KEY=VALUE\nKEY2=VALUE
+    authType?: 'token' | 'userpass' | 'oauth';
     framework: "node" | "next" | "static" | "python" | "other";
 }
 
@@ -26,4 +27,5 @@ export interface DeployResult {
     message: string;
     logs: string[];
     steps: DeployStep[];
+    deployId?: string | null;
 }
