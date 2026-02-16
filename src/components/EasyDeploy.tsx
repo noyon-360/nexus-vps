@@ -9,10 +9,12 @@ import { VpsConnectionData } from "@/app/actions/vps";
 interface EasyDeployProps {
     config: VpsConnectionData;
     onSuccess?: () => void;
+    onDeployStart?: () => void;
+    onDeployComplete?: (result: DeployResult) => void;
 }
 
 // Easy Deploy Component with GitHub Integration
-export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
+export function EasyDeploy({ config, onSuccess, onDeployStart, onDeployComplete }: EasyDeployProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [deployStats, setDeployStats] = useState<DeployResult | null>(null);
     const [formData, setFormData] = useState<DeployConfig>({
@@ -145,21 +147,29 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
 
     const handleDeploy = async () => {
         setIsLoading(true);
-        setDeployStats(null);
-        setActiveTab('activity'); // Switch to activity view on start
+        // setDeployStats(null); // Managed by parent now
+        // setActiveTab('activity'); // Managed by parent now
+
+        if (onDeployStart) onDeployStart();
+
         try {
             const result = await deployProject(config, formData);
-            setDeployStats(result);
+            // setDeployStats(result); // Managed by parent
+
+            if (onDeployComplete) onDeployComplete(result);
+
             if (result.success && onSuccess) {
                 onSuccess();
             }
         } catch (error: any) {
-            setDeployStats({
+            const errorResult = {
                 success: false,
                 message: error.message,
                 logs: ["Deployment failed due to client-side error."],
                 steps: []
-            });
+            };
+            // setDeployStats(errorResult); // Managed by parent
+            if (onDeployComplete) onDeployComplete(errorResult);
         } finally {
             setIsLoading(false);
         }
@@ -502,65 +512,7 @@ export function EasyDeploy({ config, onSuccess }: EasyDeployProps) {
                         {isLoading ? "INITIALIZING DEPLOYMENT..." : "CREATE WEB SERVICE"}
                     </button>
 
-                    {/* Results / Activity Tab */}
-                    {deployStats && (
-                        <div className={`rounded-xl border border-white/10 overflow-hidden bg-black/50`}>
-                            {/* Tabs */}
-                            <div className="flex items-center border-b border-white/10 bg-white/5">
-                                <button
-                                    onClick={() => setActiveTab('activity')}
-                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'activity' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    Activity Progress
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('console')}
-                                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${activeTab === 'console' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    Console Logs
-                                </button>
-                            </div>
-
-                            {/* Content */}
-                            <div className="p-4">
-                                {activeTab === 'activity' && (
-                                    <div className="space-y-4">
-                                        <div className={`p-3 rounded-lg border flex items-center gap-3 ${deployStats.success ? 'bg-green-500/10 border-green-500/20' : deployStats.message.includes('failed') ? 'bg-red-500/10 border-red-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
-                                            {deployStats.success ? <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" /> : !isLoading ? <ShieldAlert size={16} className="text-red-500" /> : <Loader2 size={16} className="text-blue-500 animate-spin" />}
-                                            <span className="text-sm font-bold text-white uppercase">{deployStats.message || "Deploying..."}</span>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            {deployStats.steps.map((step, i) => (
-                                                <div key={i} className="flex items-center gap-3 p-2 rounded hover:bg-white/5">
-                                                    <div className="shrink-0 w-5 flex justify-center">
-                                                        {step.status === 'success' && <div className="w-2 h-2 rounded-full bg-green-500" />}
-                                                        {step.status === 'failure' && <div className="w-2 h-2 rounded-full bg-red-500" />}
-                                                        {step.status === 'running' && <Loader2 size={12} className="text-blue-400 animate-spin" />}
-                                                        {step.status === 'pending' && <div className="w-2 h-2 rounded-full bg-zinc-700" />}
-                                                    </div>
-                                                    <div className="flex-grow">
-                                                        <span className={`text-xs font-medium ${step.status === 'running' ? 'text-blue-400' : step.status === 'success' ? 'text-green-400' : step.status === 'failure' ? 'text-red-400' : 'text-zinc-500'}`}>
-                                                            {step.name}
-                                                        </span>
-                                                        {step.details && <p className="text-[10px] text-zinc-600">{step.details}</p>}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeTab === 'console' && (
-                                    <div className="bg-black rounded-lg p-3 max-h-[300px] overflow-y-auto font-mono text-[10px] text-zinc-400 border border-white/5 custom-scrollbar">
-                                        {deployStats.logs.map((log, i) => (
-                                            <div key={i} className="py-0.5 border-b border-white/5 last:border-0">{log}</div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                    {/* Results / Activity Tab - REMOVED (Moved to Parent) */}
                 </div>
             </div>
         </div>
