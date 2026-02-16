@@ -18,6 +18,7 @@ export default function ClientOnboardingPage() {
     const [isSavingPreset, setIsSavingPreset] = useState(false);
     const [newRequestData, setNewRequestData] = useState({
         clientName: "",
+        note: "",
         config: [] as any[],
     });
 
@@ -69,11 +70,12 @@ export default function ClientOnboardingPage() {
         e.preventDefault();
         setIsConnecting(true);
         try {
-            const result = await createCredentialRequest(newRequestData.clientName, newRequestData.config);
+            const result = await createCredentialRequest(newRequestData.clientName, newRequestData.config, newRequestData.note);
             if (result.success) {
                 setIsRequestDialogOpen(false);
                 setNewRequestData({
                     clientName: "",
+                    note: "",
                     config: [],
                 });
                 fetchRequestsList();
@@ -385,6 +387,16 @@ export default function ClientOnboardingPage() {
                                 </div>
 
                                 <div className="space-y-4">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Client Instructions</label>
+                                    <textarea
+                                        value={newRequestData.note}
+                                        onChange={(e) => setNewRequestData({ ...newRequestData, note: e.target.value })}
+                                        className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-primary/50 text-sm font-medium min-h-[100px] resize-none"
+                                        placeholder="Instructions for the client (will be visible on the onboarding link)"
+                                    />
+                                </div>
+
+                                <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                         <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Request Configuration</label>
                                         <div className="flex gap-2">
@@ -408,7 +420,12 @@ export default function ClientOnboardingPage() {
                                                         newConfig = [...newConfig, ...clonedConfig];
                                                     }
 
-                                                    setNewRequestData({ ...newRequestData, config: newConfig });
+                                                    // Also load the note from the preset if current note is empty
+                                                    const updatedData: any = { ...newRequestData, config: newConfig };
+                                                    if (!newRequestData.note && userPreset.note) {
+                                                        updatedData.note = userPreset.note;
+                                                    }
+                                                    setNewRequestData(updatedData);
                                                     e.target.value = ""; // reset
                                                 }}
                                             >
@@ -656,7 +673,7 @@ export default function ClientOnboardingPage() {
                                         <button
                                             onClick={async () => {
                                                 setIsConnecting(true);
-                                                const result = await updateCredentialRequestConfig(selectedRequest.id, editConfigData);
+                                                const result = await updateCredentialRequestConfig(selectedRequest.id, editConfigData, selectedRequest.note);
                                                 setIsConnecting(false);
                                                 if (result.success) {
                                                     setSelectedRequest({ ...selectedRequest, config: editConfigData });
@@ -681,6 +698,16 @@ export default function ClientOnboardingPage() {
                         <div className="flex-grow overflow-y-auto p-8 space-y-8">
                             {isEditingConfig ? (
                                 <div className="space-y-6">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Client Instructions</label>
+                                        <textarea
+                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-brand-primary/50 text-sm font-medium min-h-[100px] resize-none"
+                                            placeholder="Instructions for the client..."
+                                            value={selectedRequest.note || ""}
+                                            onChange={(e) => setSelectedRequest({ ...selectedRequest, note: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="border-b border-white/5 my-6"></div>
                                     {/* Edit Logic Reuse */}
                                     <div className="flex items-center justify-between mb-4">
                                         <h4 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">Form Configuration</h4>
@@ -900,6 +927,18 @@ export default function ClientOnboardingPage() {
                             ) : (
                                 // View Logic
                                 <div className="space-y-6 mb-8">
+                                    {selectedRequest.note && (
+                                        <div className="bg-brand-primary/5 border border-brand-primary/20 rounded-2xl p-6 flex gap-4">
+                                            <div className="w-10 h-10 rounded-xl bg-brand-primary/10 flex items-center justify-center text-brand-primary shrink-0">
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            </div>
+                                            <div>
+                                                <h5 className="text-[10px] font-black text-brand-primary uppercase tracking-widest mb-1">Instructions Provided</h5>
+                                                <p className="text-zinc-300 text-[11px] leading-relaxed italic">{selectedRequest.note}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="flex items-center justify-between bg-white/[0.02] border border-white/5 p-6 rounded-2xl">
                                         <div>
                                             <h4 className="text-xl font-bold text-white uppercase tracking-tight">{selectedRequest.clientName}</h4>

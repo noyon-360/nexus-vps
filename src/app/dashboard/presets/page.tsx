@@ -13,6 +13,7 @@ export default function PresetsPage() {
     const [targetPresetId, setTargetPresetId] = useState<string | null>(null);
     const [presetFormData, setPresetFormData] = useState({
         name: "",
+        note: "",
         config: [] as any[],
     });
     const [isConnecting, setIsConnecting] = useState(false); // Used for loading state during save/update
@@ -36,14 +37,14 @@ export default function PresetsPage() {
         try {
             let result;
             if (isEditingPreset && targetPresetId) {
-                result = await updateCredentialPreset(targetPresetId, presetFormData.name, presetFormData.config);
+                result = await updateCredentialPreset(targetPresetId, presetFormData.name, presetFormData.config, presetFormData.note);
             } else {
-                result = await saveCredentialPreset(presetFormData.name, presetFormData.config);
+                result = await saveCredentialPreset(presetFormData.name, presetFormData.config, presetFormData.note);
             }
 
             if (result.success) {
                 setIsPresetDialogOpen(false);
-                setPresetFormData({ name: "", config: [] });
+                setPresetFormData({ name: "", note: "", config: [] });
                 setIsEditingPreset(false);
                 setTargetPresetId(null);
                 fetchPresets();
@@ -72,6 +73,7 @@ export default function PresetsPage() {
         setTargetPresetId(preset.id);
         setPresetFormData({
             name: preset.name,
+            note: preset.note || "",
             config: Array.isArray(preset.config) ? preset.config : [],
         });
         setIsPresetDialogOpen(true);
@@ -89,7 +91,7 @@ export default function PresetsPage() {
                 <button
                     onClick={() => {
                         setIsEditingPreset(false);
-                        setPresetFormData({ name: "", config: [] });
+                        setPresetFormData({ name: "", note: "", config: [] });
                         setIsPresetDialogOpen(true);
                     }}
                     className="px-6 py-3 rounded-xl bg-brand-primary text-black text-sm font-extrabold transition-all duration-300 hover:scale-[1.02] active:scale-95 flex items-center gap-2.5 shadow-xl shadow-brand-primary/10"
@@ -137,6 +139,9 @@ export default function PresetsPage() {
                                 </div>
                             </div>
                             <h4 className="text-lg font-bold text-white mb-2 group-hover:text-brand-primary transition-colors">{preset.name}</h4>
+                            <p className="text-[10px] text-zinc-500 mb-2 line-clamp-2 italic">
+                                {preset.note || "No client instructions provided."}
+                            </p>
                             <p className="text-xs text-zinc-500 mb-6 font-medium">
                                 {Array.isArray(preset.config) ? preset.config.length : 0} Sections • {Array.isArray(preset.config) ? preset.config.reduce((acc: number, s: any) => acc + (s.fields?.length || 0), 0) : 0} Fields
                             </p>
@@ -152,7 +157,7 @@ export default function PresetsPage() {
                     <button
                         onClick={() => {
                             setIsEditingPreset(false);
-                            setPresetFormData({ name: "", config: [] });
+                            setPresetFormData({ name: "", note: "", config: [] });
                             setIsPresetDialogOpen(true);
                         }}
                         className="border-2 border-dashed border-white/5 rounded-3xl p-8 flex flex-col items-center justify-center text-center hover:border-brand-primary/20 hover:bg-white/[0.02] transition-all group min-h-[250px]"
@@ -194,6 +199,16 @@ export default function PresetsPage() {
                                             onChange={(e) => setPresetFormData({ ...presetFormData, name: e.target.value })}
                                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary transition-all text-sm font-bold shadow-inner"
                                             placeholder="e.g. My Custom VPS Setup"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest pl-1">Note for Client (Instructions)</label>
+                                        <textarea
+                                            value={presetFormData.note}
+                                            onChange={(e) => setPresetFormData({ ...presetFormData, note: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand-primary transition-all text-sm font-bold shadow-inner min-h-[100px] resize-none"
+                                            placeholder="e.g. Please provide your Cloudflare Global API Key and the email associated with your account."
                                         />
                                     </div>
 
