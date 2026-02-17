@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
     const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-    const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/github/callback`;
+    const REDIRECT_URI = `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/github/callback`;
 
     if (!GITHUB_CLIENT_ID) {
         return NextResponse.json({ error: "GitHub Client ID not configured" }, { status: 500 });
