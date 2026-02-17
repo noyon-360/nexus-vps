@@ -19,6 +19,7 @@ export default function DashboardLayout({
         { name: "Client Onboarding", path: "/dashboard/client-onboarding" },
         { name: "Client Data", path: "/dashboard/client-data" },
         { name: "Presets", path: "/dashboard/presets" },
+        { name: "Organizations", path: "/dashboard/organizations" },
         { name: "Settings", path: "/dashboard/settings" },
     ];
 
