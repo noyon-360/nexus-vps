@@ -3,8 +3,6 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
 const prismaClientSingleton = () => {
-  console.log("Initializing Prisma with URL:", process.env.DATABASE_URL);
-
   // Create a connection pool (recommended over single connections)
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
