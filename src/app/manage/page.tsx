@@ -13,6 +13,7 @@ import {
     Shield, Terminal as TerminalIcon, Trash2, XCircle, Search, Plus,
     Key, GitBranch, Play, StopCircle, Square
 } from 'lucide-react';
+import { AIBot } from "@/components/AIBot";
 
 const TerminalComponent = dynamic(() => import("@/components/Terminal"), { ssr: false });
 const DomainDetailsDialog = dynamic(() => import("@/components/DomainDetailsDialog"), { ssr: false });
@@ -794,6 +795,16 @@ function ManageContent() {
                     scrollbar-color: rgba(246, 148, 77, 0.15) rgba(255, 255, 255, 0.02);
                 }
             `}</style>
+            {/* AI Assistant */}
+            <AIBot 
+                vps={{
+                    ip: host,
+                    username: user,
+                    password: (() => {
+                        try { return atob(encodedPass); } catch { return ""; }
+                    })()
+                }}
+            />
         </div>
     );
 }
