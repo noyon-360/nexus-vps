@@ -16,6 +16,7 @@ export default function DashboardLayout({
 
     const navItems = [
         { name: "Client VPS", path: "/dashboard" },
+        { name: "Analyze", path: "/dashboard/analyze" },
         { name: "Client Onboarding", path: "/dashboard/client-onboarding" },
         { name: "Client Data", path: "/dashboard/client-data" },
         { name: "Presets", path: "/dashboard/presets" },
